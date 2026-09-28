@@ -8,6 +8,8 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Bounded MCP capability discovery with pagination, deterministic SHA-256 integrity fingerprints,
+  cache hints, safe change policy, registry reconciliation, and static endpoint providers.
 - Tenant-scoped MCP service registry with capability and endpoint catalogs, monotonic revisions,
   optimistic concurrency, immutable snapshots, and interchangeable in-memory and SQLite backends.
 - Pooled Streamable HTTP MCP proxy with static upstream configuration, request deadlines,

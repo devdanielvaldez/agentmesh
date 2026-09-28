@@ -3,6 +3,7 @@ members = [
     "crates/agentmesh",
     "crates/agentmesh-config",
     "crates/agentmesh-core",
+    "crates/agentmesh-discovery",
     "crates/agentmesh-error",
     "crates/agentmesh-gateway",
     "crates/agentmesh-protocol",
@@ -38,6 +39,7 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+sha2 = "0.10"
 thiserror = "2.0"
 tempfile = "3.20"
 tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal"] }

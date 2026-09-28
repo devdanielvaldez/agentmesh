@@ -92,7 +92,10 @@ async fn proxy_forwards_json_with_only_the_trusted_credential() {
         let trusted = headers
             .get("x-upstream-key")
             .and_then(|value| value.to_str().ok());
-        if headers.contains_key(header::AUTHORIZATION) || trusted != Some("trusted-secret") {
+        if headers.contains_key(header::AUTHORIZATION)
+            || trusted != Some("trusted-secret")
+            || headers.get("mcp-method") != Some(&HeaderValue::from_static("ping"))
+        {
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(String::new())

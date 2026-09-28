@@ -3,7 +3,7 @@
 use std::{future::Future, pin::Pin, time::Duration};
 
 use agentmesh_error::{AgentMeshError, ErrorCode};
-use agentmesh_protocol::{JsonRpcMessage, ProtocolLimits, RequestId, decode_message};
+use agentmesh_protocol::{JsonRpcMessage, McpMethod, ProtocolLimits, RequestId, decode_message};
 use bytes::{Bytes, BytesMut};
 use futures_util::{StreamExt, TryStreamExt};
 use http::{HeaderValue, StatusCode, header};
@@ -92,9 +92,17 @@ impl ProxyClient {
         &self,
         request: ProxyRequest,
     ) -> Result<ProxyResponse, AgentMeshError> {
-        let expected_id = match &request.message {
-            JsonRpcMessage::Request(message) => Some(message.id.clone()),
-            JsonRpcMessage::Notification(_) => None,
+        let (expected_id, method, name) = match &request.message {
+            JsonRpcMessage::Request(message) => (
+                Some(message.id.clone()),
+                message.method.clone(),
+                routing_name(&message.method, message.params.as_ref()),
+            ),
+            JsonRpcMessage::Notification(message) => (
+                None,
+                message.method.clone(),
+                routing_name(&message.method, message.params.as_ref()),
+            ),
             JsonRpcMessage::Response(_) => {
                 return Err(AgentMeshError::new(
                     ErrorCode::InvalidRequest,
@@ -117,19 +125,8 @@ impl ProxyClient {
             ));
         }
 
-        let mut headers = filter_request_headers(&request.headers);
-        headers.insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        );
-        headers.insert(
-            header::ACCEPT,
-            HeaderValue::from_static("application/json, text/event-stream"),
-        );
-        if let Some(credential) = &request.credential {
-            let (name, value) = credential.parts();
-            headers.insert(name.clone(), value.clone());
-        }
+        let headers =
+            upstream_headers(&request.headers, &method, name, request.credential.as_ref())?;
 
         let response = self
             .client
@@ -188,6 +185,58 @@ impl ProxyClient {
             _ => Err(invalid_upstream_content_type()),
         }
     }
+}
+
+fn upstream_headers(
+    caller_headers: &http::HeaderMap,
+    method: &McpMethod,
+    name: Option<&str>,
+    credential: Option<&crate::UpstreamCredential>,
+) -> Result<http::HeaderMap, AgentMeshError> {
+    let mut headers = filter_request_headers(caller_headers);
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        header::ACCEPT,
+        HeaderValue::from_static("application/json, text/event-stream"),
+    );
+    headers.insert(
+        "mcp-method",
+        HeaderValue::from_str(method.as_str()).map_err(invalid_routing_header)?,
+    );
+    if let Some(name) = name {
+        headers.insert(
+            "mcp-name",
+            HeaderValue::from_str(name).map_err(invalid_routing_header)?,
+        );
+    }
+    if let Some(credential) = credential {
+        let (name, value) = credential.parts();
+        headers.insert(name.clone(), value.clone());
+    }
+    Ok(headers)
+}
+
+fn routing_name<'a>(method: &McpMethod, params: Option<&'a serde_json::Value>) -> Option<&'a str> {
+    let key = match method {
+        McpMethod::ToolsCall | McpMethod::PromptsGet => "name",
+        McpMethod::ResourcesRead
+        | McpMethod::ResourcesSubscribe
+        | McpMethod::ResourcesUnsubscribe => "uri",
+        McpMethod::TasksGet | McpMethod::TasksCancel => "taskId",
+        _ => return None,
+    };
+    params?.get(key)?.as_str()
+}
+
+fn invalid_routing_header(source: http::header::InvalidHeaderValue) -> AgentMeshError {
+    AgentMeshError::with_source(
+        ErrorCode::InvalidRequest,
+        "The MCP method or capability name cannot be represented as an HTTP header.",
+        source,
+    )
 }
 
 fn validate_upstream_message(

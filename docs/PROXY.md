@@ -38,6 +38,9 @@ sent upstream. Only MCP content negotiation, protocol-version, and distributed-t
 allowed through. Trusted upstream credentials are represented separately and injected after this
 filtering step, so caller input cannot replace them.
 
+The proxy derives `Mcp-Method` and, for named operations, `Mcp-Name` from the validated JSON-RPC
+message. Caller-supplied values cannot override these routing and accounting headers.
+
 The credential API is ready for the future secrets module. Static YAML credentials are deliberately
 not supported yet, avoiding secrets in configuration files. Debug output redacts credential values
 and URL query strings.
