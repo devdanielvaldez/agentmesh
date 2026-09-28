@@ -8,6 +8,8 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Tenant-scoped MCP service registry with capability and endpoint catalogs, monotonic revisions,
+  optimistic concurrency, immutable snapshots, and interchangeable in-memory and SQLite backends.
 - Pooled Streamable HTTP MCP proxy with static upstream configuration, request deadlines,
   bounded JSON and SSE responses, strict header allowlists, and isolated upstream credentials.
 - Shared error taxonomy with stable codes, HTTP/MCP mappings, retry classification, and

@@ -90,6 +90,7 @@ crates/
 ├── agentmesh-gateway/  HTTP data plane and middleware
 ├── agentmesh-protocol/ MCP types, negotiation, and bounded validation
 ├── agentmesh-proxy/    bounded, credential-safe upstream forwarding
+├── agentmesh-registry/ tenant-scoped services, endpoints, and capabilities
 └── agentmesh-transport/ bounded HTTP, SSE, and stdio bindings
 ```
 
@@ -101,7 +102,8 @@ and the [first architecture decision](docs/adr/0001-workspace-and-boundaries.md)
 
 - [x] Rust workspace, CLI, configuration, gateway skeleton, health endpoints, and graceful shutdown.
 - [x] Streamable HTTP proxy and MCP protocol validation.
-- [ ] Server registry, tool discovery, and global tool catalog.
+- [x] Versioned service registry with in-memory and SQLite persistence.
+- [ ] Capability discovery and global tool catalog.
 - [ ] Routing, load balancing, health checks, and circuit breakers.
 - [ ] Authentication, RBAC, policies, and rate limiting.
 - [ ] Prometheus metrics, OpenTelemetry traces, and audit events.

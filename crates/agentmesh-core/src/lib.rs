@@ -1,10 +1,12 @@
 //! Domain types shared by every `AgentMesh` component.
 
+use std::{fmt, str::FromStr};
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Stable identifier for a registered MCP server.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ServerId(Uuid);
 
@@ -13,11 +15,35 @@ impl ServerId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    /// Creates an identifier from an existing UUID.
+    pub const fn from_uuid(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    /// Returns the underlying UUID.
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for ServerId {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl fmt::Display for ServerId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl FromStr for ServerId {
+    type Err = uuid::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(value).map(Self)
     }
 }
 
