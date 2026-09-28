@@ -18,6 +18,11 @@ members = [
     "crates/agentmesh-authz",
     "crates/agentmesh-policy",
     "crates/agentmesh-rate-limit",
+    "crates/agentmesh-credentials",
+    "crates/agentmesh-security",
+    "crates/agentmesh-cache",
+    "crates/agentmesh-telemetry",
+    "crates/agentmesh-audit",
     "crates/agentmesh-registry",
     "crates/agentmesh-transport",
 ]

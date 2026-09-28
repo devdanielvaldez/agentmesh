@@ -24,6 +24,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-audit"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-cache",
+ "agentmesh-core",
+ "agentmesh-credentials",
+ "agentmesh-error",
+ "agentmesh-registry",
+ "agentmesh-security",
+ "agentmesh-telemetry",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "agentmesh-authn"
 version = "0.1.0"
 dependencies = [
@@ -38,6 +55,15 @@ name = "agentmesh-authz"
 version = "0.1.0"
 dependencies = [
  "agentmesh-authn",
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
+]
+
+[[package]]
+name = "agentmesh-cache"
+version = "0.1.0"
+dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
  "serde",
@@ -67,6 +93,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "agentmesh-credentials"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-core",
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
 ]
 
 [[package]]
@@ -217,11 +253,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-security"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "serde_json",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "agentmesh-tasks"
 version = "0.1.0"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "agentmesh-telemetry"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
  "serde",
  "uuid",
 ]

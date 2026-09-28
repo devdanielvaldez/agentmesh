@@ -14,7 +14,8 @@ The roadmap is directional and may change as MCP evolves and real deployments pr
 - Active health checks, circuit breakers, safe retries, and backpressure. **Complete.**
 - Task affinity and independently authorized lifecycle operations. **Complete.**
 - API-key authentication, RBAC, local rate limits, and explainable policy decisions. **Complete.**
-- JWT/JWKS identity providers, distributed limits, credentials, audit sinks, and security hardening.
+- Secret brokering, SSRF/integrity defenses, bounded telemetry, cache, and audit outbox. **Complete.**
+- External identity providers, distributed backends, and production telemetry/audit exporters.
 - Local stdio bridge with supervised process lifecycle.
 
 ## 0.3 — Operator experience
