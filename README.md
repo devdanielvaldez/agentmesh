@@ -84,6 +84,8 @@ The workspace starts intentionally small and preserves clear boundaries:
 ```text
 crates/
 ├── agentmesh/          CLI and process lifecycle
+├── agentmesh-authn/    pluggable identity verification and API keys
+├── agentmesh-authz/    revisioned RBAC and capability visibility
 ├── agentmesh-config/   typed configuration and validation
 ├── agentmesh-core/     shared domain types
 ├── agentmesh-circuit-breaker/ isolated upstream failure state machines
@@ -92,11 +94,14 @@ crates/
 ├── agentmesh-gateway/  HTTP data plane and middleware
 ├── agentmesh-health/   active and passive endpoint health
 ├── agentmesh-load-balancer/ weighted, affinity, and adaptive selection
+├── agentmesh-policy/   contextual decisions and approval workflow
 ├── agentmesh-protocol/ MCP types, negotiation, and bounded validation
 ├── agentmesh-proxy/    bounded, credential-safe upstream forwarding
+├── agentmesh-rate-limit/ scoped rates, concurrency, and quotas
 ├── agentmesh-registry/ tenant-scoped services, endpoints, and capabilities
 ├── agentmesh-resilience/ deadlines, retries, queues, and bulkheads
 ├── agentmesh-router/   deterministic, explainable route resolution
+├── agentmesh-tasks/    task lifecycle, ownership, and backend affinity
 └── agentmesh-transport/ bounded HTTP, SSE, and stdio bindings
 ```
 
@@ -111,7 +116,8 @@ and the [first architecture decision](docs/adr/0001-workspace-and-boundaries.md)
 - [x] Versioned service registry with in-memory and SQLite persistence.
 - [x] Capability discovery and global tool catalog.
 - [x] Routing, load balancing, health checks, circuit breakers, and resilience primitives.
-- [ ] Authentication, RBAC, policies, and rate limiting.
+- [x] API-key authentication, RBAC, contextual policies, approvals, and local rate limiting.
+- [ ] External identity providers, distributed limits, credentials, and security hardening.
 - [ ] Prometheus metrics, OpenTelemetry traces, and audit events.
 - [ ] Virtual MCP servers, dashboard, and Kubernetes deployment.
 
