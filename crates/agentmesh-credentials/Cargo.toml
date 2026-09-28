@@ -1,0 +1,17 @@
+[package]
+name = "agentmesh-credentials"
+description = "Secret references, providers, and credential brokering for AgentMesh"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+agentmesh-core = { path = "../agentmesh-core", version = "0.1.0" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
+agentmesh-registry = { path = "../agentmesh-registry", version = "0.1.0" }
+serde.workspace = true
+
+[lints]
+workspace = true

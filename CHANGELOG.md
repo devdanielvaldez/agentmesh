@@ -8,6 +8,16 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Opaque secret references and a tenant-scoped credential broker with pluggable providers,
+  deterministic selection, short-lived caching, rotation/revocation, zeroing, and redacted leases.
+- Central SSRF and egress defenses with host/port allowlists, public-IP enforcement, DNS pinning,
+  redirect-safe destinations, bounded JSON, safe headers/redaction, and SHA-256 integrity quarantine.
+- Revision-, identity-, protocol-, and tenant-aware MCP caching with explicit resource-read opt-in,
+  TTL/byte/entry bounds, LRU eviction, invalidation, redacted leases, and metrics.
+- Vendor-neutral W3C trace propagation, allowlisted low-cardinality attributes, bounded metric
+  aggregation, structured events, and dropped-series/event accounting.
+- Redacted audit events and a bounded tamper-evident SHA-256 outbox with required/best-effort
+  delivery, retries, acknowledgements, stable exporter errors, and chain verification.
 - Tenant-safe long-running MCP task mappings with opaque IDs, backend affinity, owner authorization,
   optimistic revisions, validated lifecycle transitions, expiry, cleanup, and bounded events.
 - Pluggable authentication with normalized principals, redacted credentials, SHA-256 API-key

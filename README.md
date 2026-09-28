@@ -84,10 +84,13 @@ The workspace starts intentionally small and preserves clear boundaries:
 ```text
 crates/
 ├── agentmesh/          CLI and process lifecycle
+├── agentmesh-audit/    tamper-evident security audit outbox
 ├── agentmesh-authn/    pluggable identity verification and API keys
 ├── agentmesh-authz/    revisioned RBAC and capability visibility
+├── agentmesh-cache/    revision-aware bounded MCP caching
 ├── agentmesh-config/   typed configuration and validation
 ├── agentmesh-core/     shared domain types
+├── agentmesh-credentials/ secret references and credential brokering
 ├── agentmesh-circuit-breaker/ isolated upstream failure state machines
 ├── agentmesh-discovery/ bounded endpoint and MCP capability discovery
 ├── agentmesh-error/    stable error taxonomy and safe client responses
@@ -101,7 +104,9 @@ crates/
 ├── agentmesh-registry/ tenant-scoped services, endpoints, and capabilities
 ├── agentmesh-resilience/ deadlines, retries, queues, and bulkheads
 ├── agentmesh-router/   deterministic, explainable route resolution
+├── agentmesh-security/ SSRF, egress, integrity, and payload defenses
 ├── agentmesh-tasks/    task lifecycle, ownership, and backend affinity
+├── agentmesh-telemetry/ bounded metrics, traces, and safe events
 └── agentmesh-transport/ bounded HTTP, SSE, and stdio bindings
 ```
 
@@ -117,8 +122,8 @@ and the [first architecture decision](docs/adr/0001-workspace-and-boundaries.md)
 - [x] Capability discovery and global tool catalog.
 - [x] Routing, load balancing, health checks, circuit breakers, and resilience primitives.
 - [x] API-key authentication, RBAC, contextual policies, approvals, and local rate limiting.
-- [ ] External identity providers, distributed limits, credentials, and security hardening.
-- [ ] Prometheus metrics, OpenTelemetry traces, and audit events.
+- [x] Secret brokering, SSRF/integrity defenses, bounded telemetry, caching, and audit outbox.
+- [ ] External identity providers, distributed backends, and production exporters/sinks.
 - [ ] Virtual MCP servers, dashboard, and Kubernetes deployment.
 
 The detailed sequencing lives in [ROADMAP.md](ROADMAP.md).
