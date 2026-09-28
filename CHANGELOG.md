@@ -8,6 +8,16 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Deterministic tenant-scoped routing with compiled precedence, conflict detection, capability
+  verification, endpoint-label selection, and explainable decisions.
+- Round-robin, random, least-active, weighted, consistent-hash, EWMA, and adaptive endpoint
+  balancing with cancellation-safe RAII leases and bounded metrics.
+- Active/passive endpoint health state machines, deterministic probe jitter, stale-signal handling,
+  administrative quarantine, recovery warm-up, and bounded transition events.
+- Per-endpoint and optional per-capability circuit breakers with rolling failure windows, cooldowns,
+  bounded half-open probes, fail-fast errors, and observable state transitions.
+- Deadline budgets, idempotency-safe retry policies and budgets, exponential jittered backoff,
+  priority backpressure queues, concurrency bulkheads, and graceful draining primitives.
 - Bounded MCP capability discovery with pagination, deterministic SHA-256 integrity fingerprints,
   cache hints, safe change policy, registry reconciliation, and static endpoint providers.
 - Tenant-scoped MCP service registry with capability and endpoint catalogs, monotonic revisions,

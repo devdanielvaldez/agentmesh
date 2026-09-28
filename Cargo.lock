@@ -24,6 +24,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-circuit-breaker"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
+]
+
+[[package]]
 name = "agentmesh-config"
 version = "0.1.0"
 dependencies = [
@@ -85,6 +94,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-health"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
+]
+
+[[package]]
+name = "agentmesh-load-balancer"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-circuit-breaker",
+ "agentmesh-core",
+ "agentmesh-error",
+ "agentmesh-health",
+ "agentmesh-registry",
+ "agentmesh-resilience",
+ "agentmesh-router",
+ "serde",
+]
+
+[[package]]
 name = "agentmesh-protocol"
 version = "0.1.0"
 dependencies = [
@@ -121,6 +153,24 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+]
+
+[[package]]
+name = "agentmesh-resilience"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "serde",
+]
+
+[[package]]
+name = "agentmesh-router"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-core",
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
 ]
 
 [[package]]

@@ -8,6 +8,11 @@ members = [
     "crates/agentmesh-gateway",
     "crates/agentmesh-protocol",
     "crates/agentmesh-proxy",
+    "crates/agentmesh-router",
+    "crates/agentmesh-load-balancer",
+    "crates/agentmesh-health",
+    "crates/agentmesh-circuit-breaker",
+    "crates/agentmesh-resilience",
     "crates/agentmesh-registry",
     "crates/agentmesh-transport",
 ]
