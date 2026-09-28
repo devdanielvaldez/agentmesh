@@ -2,11 +2,12 @@
 
 use std::time::Duration;
 
+use agentmesh_error::{AgentMeshError, ErrorCode};
 use axum::{
     Json, Router,
     extract::MatchedPath,
     http::{HeaderName, Request, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::Serialize;
@@ -85,21 +86,22 @@ async fn readiness() -> StatusCode {
 }
 
 async fn mcp_placeholder() -> impl IntoResponse {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(serde_json::json!({
-            "error": {
-                "code": "MCP_PROXY_NOT_CONFIGURED",
-                "message": "The MCP proxy will be enabled after an upstream server is registered."
-            }
-        })),
-    )
+    error_response(&AgentMeshError::new(
+        ErrorCode::McpProxyNotConfigured,
+        "The MCP proxy will be enabled after an upstream server is registered.",
+    ))
+}
+
+fn error_response(error: &AgentMeshError) -> Response {
+    let status = StatusCode::from_u16(error.code().http_status())
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    (status, Json(error.public_response())).into_response()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::Body;
+    use axum::body::{Body, to_bytes};
     use tower::ServiceExt;
 
     #[tokio::test]
@@ -116,5 +118,27 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert!(response.headers().contains_key(&REQUEST_ID_HEADER));
+    }
+
+    #[tokio::test]
+    async fn mcp_errors_use_the_shared_public_envelope() {
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("router response");
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("read response body");
+        let body: serde_json::Value = serde_json::from_slice(&body).expect("valid JSON response");
+        assert_eq!(body["error"]["code"], "MCP_PROXY_NOT_CONFIGURED");
+        assert_eq!(body["error"]["retryable"], false);
     }
 }
