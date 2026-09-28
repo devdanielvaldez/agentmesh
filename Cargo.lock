@@ -52,6 +52,8 @@ name = "agentmesh-gateway"
 version = "0.1.0"
 dependencies = [
  "agentmesh-error",
+ "agentmesh-protocol",
+ "agentmesh-transport",
  "axum",
  "http",
  "serde",
@@ -70,6 +72,17 @@ dependencies = [
  "agentmesh-error",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "agentmesh-transport"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-protocol",
+ "http",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -861,6 +874,7 @@ version = "1.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
 dependencies = [
+ "bytes",
  "libc",
  "mio",
  "pin-project-lite",

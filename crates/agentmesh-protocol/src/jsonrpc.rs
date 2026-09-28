@@ -97,6 +97,24 @@ impl JsonRpcNotification {
             params,
         }
     }
+
+    /// Parses modern `_meta` from notification parameters when present.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AgentMeshError`] when parameters, `_meta`, or required
+    /// protocol metadata is absent or invalid.
+    pub fn request_meta(&self) -> Result<RequestMeta, AgentMeshError> {
+        let metadata = self
+            .params
+            .as_ref()
+            .and_then(Value::as_object)
+            .and_then(|params| params.get("_meta"))
+            .cloned()
+            .ok_or_else(|| invalid_request("Modern MCP notifications require a _meta object."))?;
+        serde_json::from_value(metadata)
+            .map_err(|_| invalid_request("Modern MCP notification metadata is invalid."))
+    }
 }
 
 /// Protocol error information returned inside a JSON-RPC response.
