@@ -8,6 +8,8 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Shared error taxonomy with stable codes, HTTP/MCP mappings, retry classification, and
+  disclosure-safe public responses.
 - Initial Rust workspace with separate CLI, core, configuration, and gateway crates.
 - Typed YAML configuration with strict validation.
 - HTTP gateway with liveness, readiness, request IDs, tracing, compression, and panic recovery.
@@ -15,4 +17,3 @@ All notable changes to AgentMesh will be documented here. The project follows
 - Container, CI, security, contribution, and repository governance foundations.
 
 [Unreleased]: https://github.com/devdanielvaldez/agentmesh/commits/main
-

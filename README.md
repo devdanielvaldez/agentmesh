@@ -86,6 +86,7 @@ crates/
 ├── agentmesh/          CLI and process lifecycle
 ├── agentmesh-config/   typed configuration and validation
 ├── agentmesh-core/     shared domain types
+├── agentmesh-error/    stable error taxonomy and safe client responses
 └── agentmesh-gateway/  HTTP data plane and middleware
 ```
 
@@ -119,4 +120,3 @@ GitHub Discussions for open-ended proposals.
 ## License
 
 AgentMesh is available under the [MIT License](LICENSE).
-

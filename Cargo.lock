@@ -40,9 +40,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-error"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "agentmesh-gateway"
 version = "0.1.0"
 dependencies = [
+ "agentmesh-error",
  "axum",
  "http",
  "serde",
