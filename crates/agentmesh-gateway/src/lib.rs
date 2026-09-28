@@ -1,16 +1,17 @@
 //! `AgentMesh` HTTP gateway and operational endpoints.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use agentmesh_error::{AgentMeshError, ErrorCode};
-use agentmesh_protocol::{ProtocolLimits, SupportedVersions, decode_message};
+use agentmesh_protocol::{JsonRpcMessage, ProtocolLimits, SupportedVersions, decode_message};
+use agentmesh_proxy::{McpProxy, ProxyBody, ProxyClient, ProxyRequest, UpstreamEndpoint};
 use agentmesh_transport::{
     resolve_http_protocol_version, select_response_mode, validate_json_content_type,
 };
 use axum::{
     Json, Router,
-    body::Bytes,
-    extract::MatchedPath,
+    body::{Body, Bytes},
+    extract::{MatchedPath, State},
     http::{HeaderMap, HeaderName, Request, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -28,11 +29,36 @@ const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
 /// Builds the gateway router shared by production and tests.
 pub fn router() -> Router {
+    build_router(GatewayState::default())
+}
+
+/// Builds a gateway that forwards validated MCP requests to one static upstream.
+pub fn router_with_upstream(proxy: ProxyClient, endpoint: UpstreamEndpoint) -> Router {
+    build_router(GatewayState {
+        upstream: Some(GatewayUpstream {
+            proxy: Arc::new(proxy),
+            endpoint,
+        }),
+    })
+}
+
+#[derive(Clone, Default)]
+struct GatewayState {
+    upstream: Option<GatewayUpstream>,
+}
+
+#[derive(Clone)]
+struct GatewayUpstream {
+    proxy: Arc<dyn McpProxy>,
+    endpoint: UpstreamEndpoint,
+}
+
+fn build_router(state: GatewayState) -> Router {
     Router::new()
         .route("/", get(service_info))
         .route("/health/live", get(liveness))
         .route("/health/ready", get(readiness))
-        .route("/mcp", post(mcp_placeholder))
+        .route("/mcp", post(mcp))
         .layer(PropagateRequestIdLayer::new(REQUEST_ID_HEADER.clone()))
         .layer(SetRequestIdLayer::new(
             REQUEST_ID_HEADER.clone(),
@@ -65,6 +91,7 @@ pub fn router() -> Router {
         )
         .layer(CompressionLayer::new())
         .layer(CatchPanicLayer::new())
+        .with_state(state)
 }
 
 #[derive(Serialize)]
@@ -90,23 +117,47 @@ async fn readiness() -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-async fn mcp_placeholder(headers: HeaderMap, body: Bytes) -> Response {
-    if let Err(error) = validate_mcp_http_request(&headers, &body) {
-        return error_response(&error);
+async fn mcp(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes) -> Response {
+    let message = match validate_mcp_http_request(&headers, &body) {
+        Ok(message) => message,
+        Err(error) => return error_response(&error),
+    };
+    let Some(upstream) = state.upstream else {
+        return error_response(&AgentMeshError::new(
+            ErrorCode::McpProxyNotConfigured,
+            "No MCP upstream is configured.",
+        ));
+    };
+
+    let request = ProxyRequest::new(upstream.endpoint, message).with_headers(headers);
+    match upstream.proxy.execute(request).await {
+        Ok(response) => proxy_response(response),
+        Err(error) => error_response(&error),
     }
-    error_response(&AgentMeshError::new(
-        ErrorCode::McpProxyNotConfigured,
-        "The MCP proxy will be enabled after an upstream server is registered.",
-    ))
 }
 
-fn validate_mcp_http_request(headers: &HeaderMap, body: &[u8]) -> Result<(), AgentMeshError> {
+fn validate_mcp_http_request(
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<JsonRpcMessage, AgentMeshError> {
     validate_json_content_type(headers)?;
     let message = decode_message(body, ProtocolLimits::default())?;
     let supported = SupportedVersions::latest_only();
     resolve_http_protocol_version(headers, &message, &supported)?;
     select_response_mode(headers)?;
-    Ok(())
+    Ok(message)
+}
+
+fn proxy_response(response: agentmesh_proxy::ProxyResponse) -> Response {
+    let (status, headers, body) = response.into_parts();
+    let mut response = match body {
+        ProxyBody::Empty => Body::empty().into_response(),
+        ProxyBody::Json(message) => Json(message).into_response(),
+        ProxyBody::ServerSentEvents(stream) => Body::from_stream(stream).into_response(),
+    };
+    *response.status_mut() = status;
+    response.headers_mut().extend(headers);
+    response
 }
 
 fn error_response(error: &AgentMeshError) -> Response {

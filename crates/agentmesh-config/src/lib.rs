@@ -39,6 +39,18 @@ impl Config {
                 "gateway.port must be greater than zero".into(),
             ));
         }
+        if let Some(upstream) = &self.gateway.upstream {
+            if upstream.url.trim().is_empty() {
+                return Err(ConfigError::Validation(
+                    "gateway.upstream.url must not be empty".into(),
+                ));
+            }
+            if upstream.request_timeout_ms == 0 {
+                return Err(ConfigError::Validation(
+                    "gateway.upstream.request_timeout_ms must be greater than zero".into(),
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -51,6 +63,8 @@ pub struct GatewayConfig {
     pub host: IpAddr,
     /// TCP port to bind.
     pub port: u16,
+    /// Optional static upstream for the first functional proxy milestone.
+    pub upstream: Option<UpstreamConfig>,
 }
 
 impl Default for GatewayConfig {
@@ -58,6 +72,29 @@ impl Default for GatewayConfig {
         Self {
             host: IpAddr::from([0, 0, 0, 0]),
             port: 8080,
+            upstream: None,
+        }
+    }
+}
+
+/// Static upstream used before the server registry and router are introduced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpstreamConfig {
+    /// Streamable HTTP MCP endpoint URL.
+    pub url: String,
+    /// Allows plain HTTP for explicitly configured local development endpoints.
+    pub allow_insecure_http: bool,
+    /// Per-request deadline in milliseconds.
+    pub request_timeout_ms: u64,
+}
+
+impl Default for UpstreamConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            allow_insecure_http: false,
+            request_timeout_ms: 30_000,
         }
     }
 }
@@ -108,6 +145,24 @@ mod tests {
     fn rejects_zero_port() {
         let mut config = Config::default();
         config.gateway.port = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_empty_upstream_url() {
+        let mut config = Config::default();
+        config.gateway.upstream = Some(UpstreamConfig::default());
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_zero_upstream_timeout() {
+        let mut config = Config::default();
+        config.gateway.upstream = Some(UpstreamConfig {
+            url: "https://example.com/mcp".into(),
+            request_timeout_ms: 0,
+            ..UpstreamConfig::default()
+        });
         assert!(config.validate().is_err());
     }
 }

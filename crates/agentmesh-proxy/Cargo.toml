@@ -1,0 +1,26 @@
+[package]
+name = "agentmesh-proxy"
+description = "Bounded and credential-safe MCP upstream proxy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
+agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.1.0" }
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+idna_adapter.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

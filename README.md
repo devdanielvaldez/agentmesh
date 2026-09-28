@@ -54,8 +54,8 @@ server implementation.
 
 ## Quick start
 
-AgentMesh is currently an early implementation. The gateway and operational endpoints are ready;
-MCP upstream proxying is the next milestone.
+AgentMesh is currently an early implementation. The gateway can validate and proxy modern MCP
+requests to one statically configured Streamable HTTP upstream.
 
 ```bash
 git clone https://github.com/devdanielvaldez/agentmesh.git
@@ -89,6 +89,7 @@ crates/
 ├── agentmesh-error/    stable error taxonomy and safe client responses
 ├── agentmesh-gateway/  HTTP data plane and middleware
 ├── agentmesh-protocol/ MCP types, negotiation, and bounded validation
+├── agentmesh-proxy/    bounded, credential-safe upstream forwarding
 └── agentmesh-transport/ bounded HTTP, SSE, and stdio bindings
 ```
 
@@ -99,7 +100,7 @@ and the [first architecture decision](docs/adr/0001-workspace-and-boundaries.md)
 ## Roadmap
 
 - [x] Rust workspace, CLI, configuration, gateway skeleton, health endpoints, and graceful shutdown.
-- [ ] Streamable HTTP proxy and MCP protocol validation.
+- [x] Streamable HTTP proxy and MCP protocol validation.
 - [ ] Server registry, tool discovery, and global tool catalog.
 - [ ] Routing, load balancing, health checks, and circuit breakers.
 - [ ] Authentication, RBAC, policies, and rate limiting.
