@@ -280,14 +280,31 @@ impl AgentMeshError {
         }
     }
 
-    /// Wraps an internal cause while exposing only a generic client message.
-    pub fn internal(source: impl Into<BoxError>) -> Self {
+    /// Creates a classified error with a retained internal cause.
+    ///
+    /// The cause is available through [`Error::source`] for trusted diagnostics,
+    /// but is excluded from [`PublicErrorResponse`] and the custom [`Debug`](fmt::Debug)
+    /// representation.
+    pub fn with_source(
+        code: ErrorCode,
+        public_message: impl Into<String>,
+        source: impl Into<BoxError>,
+    ) -> Self {
         Self {
-            code: ErrorCode::Internal,
-            public_message: "An unexpected internal error occurred.".into(),
+            code,
+            public_message: public_message.into(),
             trace_id: None,
             source: Some(source.into()),
         }
+    }
+
+    /// Wraps an internal cause while exposing only a generic client message.
+    pub fn internal(source: impl Into<BoxError>) -> Self {
+        Self::with_source(
+            ErrorCode::Internal,
+            "An unexpected internal error occurred.",
+            source,
+        )
     }
 
     /// Associates a trace identifier that clients may safely use when requesting support.

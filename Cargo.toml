@@ -6,6 +6,7 @@ members = [
     "crates/agentmesh-error",
     "crates/agentmesh-gateway",
     "crates/agentmesh-protocol",
+    "crates/agentmesh-transport",
 ]
 resolver = "2"
 
