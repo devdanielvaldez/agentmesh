@@ -13,6 +13,11 @@ members = [
     "crates/agentmesh-health",
     "crates/agentmesh-circuit-breaker",
     "crates/agentmesh-resilience",
+    "crates/agentmesh-tasks",
+    "crates/agentmesh-authn",
+    "crates/agentmesh-authz",
+    "crates/agentmesh-policy",
+    "crates/agentmesh-rate-limit",
     "crates/agentmesh-registry",
     "crates/agentmesh-transport",
 ]

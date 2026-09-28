@@ -1,0 +1,17 @@
+[package]
+name = "agentmesh-authz"
+description = "Revisioned explainable RBAC authorization for AgentMesh"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+agentmesh-authn = { path = "../agentmesh-authn", version = "0.1.0" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
+agentmesh-registry = { path = "../agentmesh-registry", version = "0.1.0" }
+serde.workspace = true
+
+[lints]
+workspace = true

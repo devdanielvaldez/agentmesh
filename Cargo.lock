@@ -24,6 +24,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-authn"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
+ "sha2",
+]
+
+[[package]]
+name = "agentmesh-authz"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-authn",
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
+]
+
+[[package]]
 name = "agentmesh-circuit-breaker"
 version = "0.1.0"
 dependencies = [
@@ -117,6 +137,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-policy"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-authn",
+ "agentmesh-authz",
+ "agentmesh-error",
+ "agentmesh-rate-limit",
+ "agentmesh-registry",
+ "agentmesh-tasks",
+ "serde",
+ "uuid",
+]
+
+[[package]]
 name = "agentmesh-protocol"
 version = "0.1.0"
 dependencies = [
@@ -140,6 +174,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "agentmesh-rate-limit"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
 ]
 
 [[package]]
@@ -171,6 +214,16 @@ dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
  "serde",
+]
+
+[[package]]
+name = "agentmesh-tasks"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-registry",
+ "serde",
+ "uuid",
 ]
 
 [[package]]

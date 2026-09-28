@@ -12,7 +12,9 @@ The roadmap is directional and may change as MCP evolves and real deployments pr
 ## 0.2 — Reliability and policy
 
 - Active health checks, circuit breakers, safe retries, and backpressure. **Complete.**
-- JWT/API-key authentication, RBAC, rate limits, and auditable policy decisions.
+- Task affinity and independently authorized lifecycle operations. **Complete.**
+- API-key authentication, RBAC, local rate limits, and explainable policy decisions. **Complete.**
+- JWT/JWKS identity providers, distributed limits, credentials, audit sinks, and security hardening.
 - Local stdio bridge with supervised process lifecycle.
 
 ## 0.3 — Operator experience

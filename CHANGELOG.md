@@ -8,6 +8,16 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Tenant-safe long-running MCP task mappings with opaque IDs, backend affinity, owner authorization,
+  optimistic revisions, validated lifecycle transitions, expiry, cleanup, and bounded events.
+- Pluggable authentication with normalized principals, redacted credentials, SHA-256 API-key
+  snapshots, constant-time matching, expiry/disable controls, assurance, and safe audit evidence.
+- Revisioned RBAC with roles, scoped bindings, explicit-deny precedence, delegated-user constraints,
+  explainable decisions, capability visibility, and a bounded tenant-safe decision cache.
+- Compiled contextual policy with deterministic precedence, risk/time/environment/metadata matching,
+  obligations, simulation, default deny, and a separation-of-duties approval workflow.
+- Atomic tenant/principal/IP/service/capability rate, concurrency, and quota limits with token-bucket
+  refill, revisioned keys, RAII leases, bounded cardinality, metrics, and idle cleanup.
 - Deterministic tenant-scoped routing with compiled precedence, conflict detection, capability
   verification, endpoint-label selection, and explainable decisions.
 - Round-robin, random, least-active, weighted, consistent-hash, EWMA, and adaptive endpoint
