@@ -6,12 +6,12 @@ The roadmap is directional and may change as MCP evolves and real deployments pr
 
 - Streamable HTTP proxy and bounded MCP message parsing.
 - Static upstream registry and tool discovery.
-- Deterministic routing, round-robin balancing, timeouts, and passive health signals.
+- Deterministic routing, round-robin balancing, timeouts, and passive health signals. **Complete.**
 - Prometheus metrics and OpenTelemetry traces.
 
 ## 0.2 — Reliability and policy
 
-- Active health checks, circuit breakers, safe retries, and backpressure.
+- Active health checks, circuit breakers, safe retries, and backpressure. **Complete.**
 - JWT/API-key authentication, RBAC, rate limits, and auditable policy decisions.
 - Local stdio bridge with supervised process lifecycle.
 
@@ -27,4 +27,3 @@ The roadmap is directional and may change as MCP evolves and real deployments pr
   and a separated high-availability control plane.
 
 The complete design space is documented in [docs/T_ARCHITECTURE.md](docs/T_ARCHITECTURE.md).
-

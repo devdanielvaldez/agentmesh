@@ -1,0 +1,27 @@
+[package]
+name = "agentmesh-load-balancer"
+description = "Bounded endpoint selection and request accounting for AgentMesh"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
+agentmesh-registry = { path = "../agentmesh-registry", version = "0.1.0" }
+serde.workspace = true
+
+[dev-dependencies]
+agentmesh-circuit-breaker = { path = "../agentmesh-circuit-breaker", version = "0.1.0" }
+agentmesh-core = { path = "../agentmesh-core", version = "0.1.0" }
+agentmesh-health = { path = "../agentmesh-health", version = "0.1.0" }
+agentmesh-resilience = { path = "../agentmesh-resilience", version = "0.1.0" }
+agentmesh-router = { path = "../agentmesh-router", version = "0.1.0" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "traffic_hot_path"
+harness = false

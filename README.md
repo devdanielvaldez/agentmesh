@@ -86,12 +86,17 @@ crates/
 ├── agentmesh/          CLI and process lifecycle
 ├── agentmesh-config/   typed configuration and validation
 ├── agentmesh-core/     shared domain types
+├── agentmesh-circuit-breaker/ isolated upstream failure state machines
 ├── agentmesh-discovery/ bounded endpoint and MCP capability discovery
 ├── agentmesh-error/    stable error taxonomy and safe client responses
 ├── agentmesh-gateway/  HTTP data plane and middleware
+├── agentmesh-health/   active and passive endpoint health
+├── agentmesh-load-balancer/ weighted, affinity, and adaptive selection
 ├── agentmesh-protocol/ MCP types, negotiation, and bounded validation
 ├── agentmesh-proxy/    bounded, credential-safe upstream forwarding
 ├── agentmesh-registry/ tenant-scoped services, endpoints, and capabilities
+├── agentmesh-resilience/ deadlines, retries, queues, and bulkheads
+├── agentmesh-router/   deterministic, explainable route resolution
 └── agentmesh-transport/ bounded HTTP, SSE, and stdio bindings
 ```
 
@@ -105,7 +110,7 @@ and the [first architecture decision](docs/adr/0001-workspace-and-boundaries.md)
 - [x] Streamable HTTP proxy and MCP protocol validation.
 - [x] Versioned service registry with in-memory and SQLite persistence.
 - [x] Capability discovery and global tool catalog.
-- [ ] Routing, load balancing, health checks, and circuit breakers.
+- [x] Routing, load balancing, health checks, circuit breakers, and resilience primitives.
 - [ ] Authentication, RBAC, policies, and rate limiting.
 - [ ] Prometheus metrics, OpenTelemetry traces, and audit events.
 - [ ] Virtual MCP servers, dashboard, and Kubernetes deployment.
