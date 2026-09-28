@@ -10,6 +10,8 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 - Shared error taxonomy with stable codes, HTTP/MCP mappings, retry classification, and
   disclosure-safe public responses.
+- Transport-independent MCP protocol module with JSON-RPC envelopes, modern and legacy version
+  support, capability preservation, deterministic negotiation, and bounded message decoding.
 - Initial Rust workspace with separate CLI, core, configuration, and gateway crates.
 - Typed YAML configuration with strict validation.
 - HTTP gateway with liveness, readiness, request IDs, tracing, compression, and panic recovery.

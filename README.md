@@ -87,7 +87,8 @@ crates/
 ├── agentmesh-config/   typed configuration and validation
 ├── agentmesh-core/     shared domain types
 ├── agentmesh-error/    stable error taxonomy and safe client responses
-└── agentmesh-gateway/  HTTP data plane and middleware
+├── agentmesh-gateway/  HTTP data plane and middleware
+└── agentmesh-protocol/ MCP types, negotiation, and bounded validation
 ```
 
 The long-term design separates a configuration-oriented **control plane** from the high-performance

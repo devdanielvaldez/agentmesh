@@ -1,0 +1,17 @@
+[package]
+name = "agentmesh-protocol"
+description = "Transport-independent MCP protocol types, negotiation, and validation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
+
