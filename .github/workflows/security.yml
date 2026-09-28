@@ -15,6 +15,9 @@ jobs:
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
+    env:
+      # cargo-audit may require a newer compiler than AgentMesh's MSRV.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@v4
       - uses: rustsec/audit-check@v2
@@ -33,4 +36,3 @@ jobs:
       - uses: actions/dependency-review-action@v4
         with:
           comment-summary-in-pr: always
-
