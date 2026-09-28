@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and design discussions
+    url: https://github.com/devdanielvaldez/agentmesh/discussions
+    about: Ask for help or discuss an idea before turning it into scoped work.
+  - name: Private security report
+    url: https://github.com/devdanielvaldez/agentmesh/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.
+

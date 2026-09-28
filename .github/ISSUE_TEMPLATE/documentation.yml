@@ -1,0 +1,19 @@
+name: Documentation improvement
+description: Report unclear, missing, or incorrect documentation.
+title: "docs: "
+labels: [documentation, needs-triage]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Documentation location
+      placeholder: README section, file path, or URL
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What should change?
+    validations:
+      required: true
+

@@ -1,0 +1,29 @@
+[package]
+name = "agentmesh"
+description = "The service mesh for AI tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "agentmesh"
+path = "src/main.rs"
+
+[dependencies]
+agentmesh-config = { path = "../agentmesh-config", version = "0.1.0" }
+agentmesh-gateway = { path = "../agentmesh-gateway", version = "0.1.0" }
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

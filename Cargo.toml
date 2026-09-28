@@ -1,0 +1,53 @@
+[workspace]
+members = [
+    "crates/agentmesh",
+    "crates/agentmesh-config",
+    "crates/agentmesh-core",
+    "crates/agentmesh-gateway",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Daniel Valdez"]
+repository = "https://github.com/devdanielvaldez/agentmesh"
+homepage = "https://github.com/devdanielvaldez/agentmesh"
+documentation = "https://docs.rs/agentmesh"
+keywords = ["mcp", "ai", "gateway", "service-mesh", "proxy"]
+categories = ["network-programming", "web-programming"]
+
+[workspace.dependencies]
+anyhow = "1.0"
+axum = "0.8"
+clap = { version = "4.5", features = ["derive", "env"] }
+http = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+thiserror = "2.0"
+tokio = { version = "1.47", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "request-id", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+uuid = { version = "1.18", features = ["serde", "v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+panic = "abort"
+strip = "symbols"

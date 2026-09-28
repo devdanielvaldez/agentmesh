@@ -1,0 +1,9 @@
+# Copy this file to agentmesh.yaml and customize it for your environment.
+gateway:
+  host: 0.0.0.0
+  port: 8080
+
+telemetry:
+  # Prefer JSON in production and human-readable logs while developing.
+  json: false
+  filter: agentmesh=info,tower_http=info
