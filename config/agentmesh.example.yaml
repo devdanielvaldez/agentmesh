@@ -2,6 +2,12 @@
 gateway:
   host: 0.0.0.0
   port: 8080
+  # Uncomment to proxy validated MCP requests to one static upstream.
+  # The registry and router will replace this target in a later milestone.
+  # upstream:
+  #   url: http://127.0.0.1:3001/mcp
+  #   allow_insecure_http: true
+  #   request_timeout_ms: 30000
 
 telemetry:
   # Prefer JSON in production and human-readable logs while developing.

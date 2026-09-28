@@ -1,8 +1,9 @@
 //! `AgentMesh` command-line interface and process entry point.
 
-use std::{net::SocketAddr, path::PathBuf};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use agentmesh_config::Config;
+use agentmesh_proxy::{ProxyClient, ProxyConfig, UpstreamEndpoint};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::{net::TcpListener, signal};
@@ -61,8 +62,21 @@ async fn serve(path: PathBuf) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind gateway to {address}"))?;
 
+    let app = if let Some(upstream) = &config.gateway.upstream {
+        let endpoint = UpstreamEndpoint::parse(&upstream.url, upstream.allow_insecure_http)
+            .context("invalid gateway upstream")?;
+        let proxy = ProxyClient::new(ProxyConfig {
+            request_timeout: Duration::from_millis(upstream.request_timeout_ms),
+            ..ProxyConfig::default()
+        })
+        .context("failed to initialize MCP proxy")?;
+        agentmesh_gateway::router_with_upstream(proxy, endpoint)
+    } else {
+        agentmesh_gateway::router()
+    };
+
     info!(%address, "AgentMesh gateway started");
-    axum::serve(listener, agentmesh_gateway::router())
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("gateway stopped unexpectedly")

@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 agentmesh-config = { path = "../agentmesh-config", version = "0.1.0" }
 agentmesh-gateway = { path = "../agentmesh-gateway", version = "0.1.0" }
+agentmesh-proxy = { path = "../agentmesh-proxy", version = "0.1.0" }
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true

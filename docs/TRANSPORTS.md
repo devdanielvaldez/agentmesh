@@ -28,7 +28,7 @@ SSE messages use `event: message` and one or more `data` fields. Encoding is com
 - rejects non-message events and empty events;
 - validates the reconstructed JSON-RPC/MCP object.
 
-Incremental HTTP body streaming will be connected when the proxy module is introduced.
+The proxy streams upstream SSE bodies to callers while enforcing a cumulative response limit.
 
 ## stdio
 
