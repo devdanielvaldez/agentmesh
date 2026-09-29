@@ -4,7 +4,9 @@ use std::{sync::Arc, time::Duration};
 
 use agentmesh_error::{AgentMeshError, ErrorCode};
 use agentmesh_protocol::{JsonRpcMessage, ProtocolLimits, SupportedVersions, decode_message};
-use agentmesh_proxy::{McpProxy, ProxyBody, ProxyClient, ProxyRequest, UpstreamEndpoint};
+use agentmesh_proxy::{
+    McpProxy, MultiUpstreamProxy, ProxyBody, ProxyClient, ProxyRequest, UpstreamEndpoint,
+};
 use agentmesh_transport::{
     resolve_http_protocol_version, select_response_mode, validate_json_content_type,
 };
@@ -40,22 +42,39 @@ pub fn router() -> Router {
 /// Builds a gateway that forwards validated MCP requests to one static upstream.
 pub fn router_with_upstream(proxy: ProxyClient, endpoint: UpstreamEndpoint) -> Router {
     build_router(GatewayState {
-        upstream: Some(GatewayUpstream {
+        backend: GatewayBackend::Single {
             proxy: Arc::new(proxy),
             endpoint,
-        }),
+        },
+    })
+}
+
+/// Builds a gateway that fans out validated MCP requests across static upstreams.
+///
+/// The proxy must be [`MultiUpstreamProxy::initialize`]d before serving traffic.
+pub fn router_with_upstreams(multi: Arc<MultiUpstreamProxy>) -> Router {
+    build_router(GatewayState {
+        backend: GatewayBackend::Multi { proxy: multi },
     })
 }
 
 #[derive(Clone, Default)]
 struct GatewayState {
-    upstream: Option<GatewayUpstream>,
+    backend: GatewayBackend,
 }
 
-#[derive(Clone)]
-struct GatewayUpstream {
-    proxy: Arc<dyn McpProxy>,
-    endpoint: UpstreamEndpoint,
+#[derive(Clone, Default)]
+enum GatewayBackend {
+    /// No upstream configured; requests fail with a safe error envelope.
+    #[default]
+    None,
+    /// One static upstream; every validated request is forwarded to it.
+    Single {
+        proxy: Arc<dyn McpProxy>,
+        endpoint: UpstreamEndpoint,
+    },
+    /// Several static upstreams with discovery-based routing.
+    Multi { proxy: Arc<MultiUpstreamProxy> },
 }
 
 fn build_router(state: GatewayState) -> Router {
@@ -127,17 +146,22 @@ async fn mcp(State(state): State<GatewayState>, headers: HeaderMap, body: Bytes)
         Ok(message) => message,
         Err(error) => return error_response(&error),
     };
-    let Some(upstream) = state.upstream else {
-        return error_response(&AgentMeshError::new(
+    match &state.backend {
+        GatewayBackend::Single { proxy, endpoint } => {
+            let request = ProxyRequest::new(endpoint.clone(), message).with_headers(headers);
+            match proxy.execute(request).await {
+                Ok(response) => proxy_response(response),
+                Err(error) => error_response(&error),
+            }
+        }
+        GatewayBackend::Multi { proxy } => match proxy.execute_message(message, headers).await {
+            Ok(response) => proxy_response(response),
+            Err(error) => error_response(&error),
+        },
+        GatewayBackend::None => error_response(&AgentMeshError::new(
             ErrorCode::McpProxyNotConfigured,
             "No MCP upstream is configured.",
-        ));
-    };
-
-    let request = ProxyRequest::new(upstream.endpoint, message).with_headers(headers);
-    match upstream.proxy.execute(request).await {
-        Ok(response) => proxy_response(response),
-        Err(error) => error_response(&error),
+        )),
     }
 }
 

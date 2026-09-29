@@ -232,8 +232,8 @@ fn doctor(path: &PathBuf) -> Result<()> {
     println!("ok configuration: {}", path.display());
     println!("ok gateway address: {address}");
     println!(
-        "ok upstream configured: {}",
-        config.gateway.upstream.is_some()
+        "ok upstreams configured: {}",
+        config.gateway.effective_upstreams().len()
     );
     Ok(())
 }
@@ -309,17 +309,41 @@ async fn serve(path: PathBuf) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind gateway to {address}"))?;
 
-    let app = if let Some(upstream) = &config.gateway.upstream {
-        let endpoint = UpstreamEndpoint::parse(&upstream.url, upstream.allow_insecure_http)
-            .context("invalid gateway upstream")?;
-        let proxy = ProxyClient::new(ProxyConfig {
-            request_timeout: Duration::from_millis(upstream.request_timeout_ms),
-            ..ProxyConfig::default()
-        })
-        .context("failed to initialize MCP proxy")?;
-        agentmesh_gateway::router_with_upstream(proxy, endpoint)
-    } else {
-        agentmesh_gateway::router()
+    let upstreams = config.gateway.effective_upstreams();
+    let app = match upstreams.len() {
+        0 => agentmesh_gateway::router(),
+        1 => {
+            let upstream = upstreams[0];
+            let endpoint = UpstreamEndpoint::parse(&upstream.url, upstream.allow_insecure_http)
+                .context("invalid gateway upstream")?;
+            let proxy = ProxyClient::new(ProxyConfig {
+                request_timeout: Duration::from_millis(upstream.request_timeout_ms),
+                ..ProxyConfig::default()
+            })
+            .context("failed to initialize MCP proxy")?;
+            agentmesh_gateway::router_with_upstream(proxy, endpoint)
+        }
+        count => {
+            let proxy = ProxyClient::new(ProxyConfig::default())
+                .context("failed to initialize MCP proxy")?;
+            let mut targets = Vec::with_capacity(count);
+            for upstream in upstreams {
+                let endpoint = UpstreamEndpoint::parse(&upstream.url, upstream.allow_insecure_http)
+                    .context("invalid gateway upstream")?;
+                targets.push(agentmesh_proxy::UpstreamTarget {
+                    endpoint,
+                    timeout: Duration::from_millis(upstream.request_timeout_ms),
+                });
+            }
+            let fanout = agentmesh_proxy::MultiUpstreamProxy::new(proxy, targets)
+                .context("invalid multi-upstream configuration")?;
+            fanout
+                .initialize()
+                .await
+                .context("failed to discover multi-upstream capabilities")?;
+            info!(count, "Multi-upstream fan-out initialized");
+            agentmesh_gateway::router_with_upstreams(Arc::new(fanout))
+        }
     };
 
     info!(%address, "AgentMesh gateway started");

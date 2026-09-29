@@ -88,16 +88,23 @@ impl Config {
                 "gateway.port must be greater than zero".into(),
             ));
         }
+        if self.gateway.upstream.is_some() && !self.gateway.upstreams.is_empty() {
+            return Err(ConfigError::Validation(
+                "gateway.upstream and gateway.upstreams are mutually exclusive; use one of them"
+                    .into(),
+            ));
+        }
         if let Some(upstream) = &self.gateway.upstream {
-            if upstream.url.trim().is_empty() {
-                return Err(ConfigError::Validation(
-                    "gateway.upstream.url must not be empty".into(),
-                ));
-            }
-            if upstream.request_timeout_ms == 0 {
-                return Err(ConfigError::Validation(
-                    "gateway.upstream.request_timeout_ms must be greater than zero".into(),
-                ));
+            validate_upstream("gateway.upstream", upstream)?;
+        }
+        let mut seen_urls = std::collections::BTreeSet::new();
+        for (index, upstream) in self.gateway.upstreams.iter().enumerate() {
+            let location = format!("gateway.upstreams[{index}]");
+            validate_upstream(&location, upstream)?;
+            if !seen_urls.insert(upstream.url.trim().to_string()) {
+                return Err(ConfigError::Validation(format!(
+                    "{location}.url is configured more than once"
+                )));
             }
         }
         Ok(())
@@ -190,8 +197,23 @@ pub struct GatewayConfig {
     pub host: IpAddr,
     /// TCP port to bind.
     pub port: u16,
-    /// Optional static upstream for the first functional proxy milestone.
+    /// Optional single static upstream. Mutually exclusive with `upstreams`.
     pub upstream: Option<UpstreamConfig>,
+    /// Optional static upstream list for multi-server fan-out.
+    /// Mutually exclusive with `upstream`.
+    pub upstreams: Vec<UpstreamConfig>,
+}
+
+impl GatewayConfig {
+    /// Returns the configured upstreams in routing order.
+    #[must_use]
+    pub fn effective_upstreams(&self) -> Vec<&UpstreamConfig> {
+        if self.upstreams.is_empty() {
+            self.upstream.as_ref().into_iter().collect()
+        } else {
+            self.upstreams.iter().collect()
+        }
+    }
 }
 
 impl Default for GatewayConfig {
@@ -200,11 +222,27 @@ impl Default for GatewayConfig {
             host: IpAddr::from([0, 0, 0, 0]),
             port: 8080,
             upstream: None,
+            upstreams: Vec::new(),
         }
     }
 }
 
-/// Static upstream used before the server registry and router are introduced.
+fn validate_upstream(location: &str, upstream: &UpstreamConfig) -> Result<(), ConfigError> {
+    if upstream.url.trim().is_empty() {
+        return Err(ConfigError::Validation(format!(
+            "{location}.url must not be empty"
+        )));
+    }
+    if upstream.request_timeout_ms == 0 {
+        return Err(ConfigError::Validation(format!(
+            "{location}.request_timeout_ms must be greater than zero"
+        )));
+    }
+    Ok(())
+}
+
+/// Static upstream entry. One entry behaves like the legacy single upstream;
+/// several entries enable multi-server fan-out with discovery-based routing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UpstreamConfig {
@@ -293,6 +331,78 @@ mod tests {
             request_timeout_ms: 0,
             ..UpstreamConfig::default()
         });
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn upstream_list_is_accepted_and_effective() {
+        let mut config = Config::default();
+        config.gateway.upstreams = vec![
+            UpstreamConfig {
+                url: "http://127.0.0.1:3001/mcp".into(),
+                allow_insecure_http: true,
+                ..UpstreamConfig::default()
+            },
+            UpstreamConfig {
+                url: "http://127.0.0.1:3002/mcp".into(),
+                allow_insecure_http: true,
+                ..UpstreamConfig::default()
+            },
+        ];
+        assert!(config.validate().is_ok());
+        let effective = config.gateway.effective_upstreams();
+        assert_eq!(effective.len(), 2);
+        assert_eq!(effective[0].url, "http://127.0.0.1:3001/mcp");
+    }
+
+    #[test]
+    fn single_upstream_stays_effective_without_list() {
+        let mut config = Config::default();
+        config.gateway.upstream = Some(UpstreamConfig {
+            url: "http://127.0.0.1:3001/mcp".into(),
+            allow_insecure_http: true,
+            ..UpstreamConfig::default()
+        });
+        assert!(config.validate().is_ok());
+        assert_eq!(config.gateway.effective_upstreams().len(), 1);
+    }
+
+    #[test]
+    fn rejects_upstream_and_upstreams_together() {
+        let mut config = Config::default();
+        config.gateway.upstream = Some(UpstreamConfig {
+            url: "http://127.0.0.1:3001/mcp".into(),
+            allow_insecure_http: true,
+            ..UpstreamConfig::default()
+        });
+        config.gateway.upstreams = vec![UpstreamConfig {
+            url: "http://127.0.0.1:3002/mcp".into(),
+            allow_insecure_http: true,
+            ..UpstreamConfig::default()
+        }];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_upstream_urls() {
+        let mut config = Config::default();
+        let entry = UpstreamConfig {
+            url: "http://127.0.0.1:3001/mcp".into(),
+            allow_insecure_http: true,
+            ..UpstreamConfig::default()
+        };
+        config.gateway.upstreams = vec![entry.clone(), entry];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_list_entry() {
+        let mut config = Config::default();
+        config.gateway.upstreams = vec![UpstreamConfig {
+            url: "http://127.0.0.1:3001/mcp".into(),
+            request_timeout_ms: 0,
+            ..UpstreamConfig::default()
+        }];
         assert!(config.validate().is_err());
     }
 
