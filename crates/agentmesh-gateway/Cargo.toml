@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+agentmesh-config = { path = "../agentmesh-config", version = "0.1.0" }
 agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
 agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.1.0" }
 agentmesh-proxy = { path = "../agentmesh-proxy", version = "0.1.0" }
@@ -15,6 +16,7 @@ agentmesh-transport = { path = "../agentmesh-transport", version = "0.1.0" }
 axum.workspace = true
 http.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
@@ -22,6 +24,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+serde_yaml.workspace = true
 tower.workspace = true
 
 [lints]

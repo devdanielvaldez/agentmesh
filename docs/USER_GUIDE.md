@@ -86,6 +86,71 @@ Routing semantics with more than one upstream:
   them (bridges answer HTTP 404 with "method not found") simply contribute
   nothing to those merges.
 
+### Policy routing engine
+
+`gateway.policies` turns the gateway into policy-driven MCP traffic
+management. Rules evaluate in file order and the first match wins; requests
+no rule matches are allowed. Each rule combines one selector with up to four
+effects:
+
+```yaml
+gateway:
+  environment: development
+  upstreams:
+    - url: http://127.0.0.1:3001/mcp
+      name: github-prod
+      allow_insecure_http: true
+    - url: http://127.0.0.1:3002/mcp
+      name: github-free
+      allow_insecure_http: true
+  policies:
+    # Reads go to the free mirror, everything else stays discovered.
+    - match: { tool: "github.get_*" }
+      route: github-free
+    # Destructive actions stay out of development.
+    - match: { tool: "stripe.refund", environment: development }
+      deny: Refunds are disabled in development.
+    # Paid APIs get an hourly budget (429 QUOTA_EXCEEDED when exhausted).
+    - match: { tool: "maps.*" }
+      budget: { calls_per_hour: 100 }
+    # Sensitive fields never reach the upstream.
+    - match: { tool: "crm.*" }
+      redact: ["customer.ssn", "customer.credit_card"]
+```
+
+Selector semantics:
+
+- `tool` is a glob (`*`, `?`) matched against the `tools/call` tool name.
+- `method` defaults to `tools/call` when `tool` is set, and to every method
+  otherwise — so a bare `{ deny: ... }` rule is a global kill-switch.
+- `environment` compares against `gateway.environment` (default
+  `development`, the fail-safe choice: rules guarding development apply
+  unless you explicitly set `production`).
+
+Effect semantics:
+
+- `deny` rejects with `403 POLICY_DENIED` and the configured reason.
+- `route` pins matching `tools/call` requests to the named upstream,
+  bypassing discovery (unknown names fail startup, fail-closed).
+- `budget` enforces a rolling hourly window per rule; exhaustion rejects
+  with `429 QUOTA_EXCEEDED`.
+- `redact` replaces dotted `arguments` paths with `[REDACTED]` before
+  forwarding; missing paths are ignored.
+
+Every decision is recorded in `/metrics` recent events and shown in
+`agentmesh monitor` as a trailing `policy` label (`allow`,
+`allow:rule0->github-free`, `deny:rule1`, `deny:rule2:budget`,
+`allow:rule3+redact2`). Dry-run any call without side effects:
+
+```bash
+agentmesh policy --config config/agentmesh.local.yaml --tool github.get_issue
+agentmesh policy --config config/agentmesh.local.yaml --tool stripe.refund
+```
+
+The command prints the decision, matched rule, route, remaining budget, and
+redactions; it exits 2 when the call would be denied. `agentmesh doctor`
+also validates policy routes at startup time.
+
 ### Validate and inspect
 
 ```bash
@@ -98,8 +163,9 @@ agentmesh diff config/current.yaml config/candidate.yaml
 The commands have these failure semantics:
 
 - `validate` fails on unreadable YAML, unknown keys, invalid addresses, port zero, empty upstream
-  URLs, `upstream` combined with `upstreams`, duplicate upstream URLs, and zero request timeouts;
-- `doctor` prints resolved listener and upstream count after validation;
+  URLs, `upstream` combined with `upstreams`, duplicate upstream URLs or names, zero request timeouts,
+  empty policy routes, and zero hourly budgets;
+- `doctor` prints resolved listener, upstream count, and compiled policy rules after validation;
 - `schema` writes JSON Schema to standard output;
 - `diff` validates both inputs before reporting a normalized YAML difference.
 

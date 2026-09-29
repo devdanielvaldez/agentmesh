@@ -98,12 +98,37 @@ impl Config {
             validate_upstream("gateway.upstream", upstream)?;
         }
         let mut seen_urls = std::collections::BTreeSet::new();
-        for (index, upstream) in self.gateway.upstreams.iter().enumerate() {
-            let location = format!("gateway.upstreams[{index}]");
+        let mut seen_names = std::collections::BTreeSet::new();
+        for (index, upstream) in self.gateway.effective_upstreams().into_iter().enumerate() {
+            let location = if self.gateway.upstreams.is_empty() {
+                "gateway.upstream".to_string()
+            } else {
+                format!("gateway.upstreams[{index}]")
+            };
             validate_upstream(&location, upstream)?;
             if !seen_urls.insert(upstream.url.trim().to_string()) {
                 return Err(ConfigError::Validation(format!(
                     "{location}.url is configured more than once"
+                )));
+            }
+            if !seen_names.insert(upstream.effective_name(index)) {
+                return Err(ConfigError::Validation(format!(
+                    "{location}.name resolves to a duplicate upstream name"
+                )));
+            }
+        }
+        for (index, rule) in self.gateway.policies.iter().enumerate() {
+            let location = format!("gateway.policies[{index}]");
+            if let Some(budget) = &rule.budget {
+                if budget.calls_per_hour == 0 {
+                    return Err(ConfigError::Validation(format!(
+                        "{location}.budget.calls_per_hour must be greater than zero"
+                    )));
+                }
+            }
+            if rule.route.as_deref().is_some_and(str::is_empty) {
+                return Err(ConfigError::Validation(format!(
+                    "{location}.route must not be empty"
                 )));
             }
         }
@@ -202,6 +227,10 @@ pub struct GatewayConfig {
     /// Optional static upstream list for multi-server fan-out.
     /// Mutually exclusive with `upstream`.
     pub upstreams: Vec<UpstreamConfig>,
+    /// Deployment environment matched by policy rules (`development` by default).
+    pub environment: String,
+    /// Policy routing rules evaluated in order; the first match wins.
+    pub policies: Vec<PolicyRule>,
 }
 
 impl GatewayConfig {
@@ -223,6 +252,8 @@ impl Default for GatewayConfig {
             port: 8080,
             upstream: None,
             upstreams: Vec::new(),
+            environment: "development".to_string(),
+            policies: Vec::new(),
         }
     }
 }
@@ -248,20 +279,77 @@ fn validate_upstream(location: &str, upstream: &UpstreamConfig) -> Result<(), Co
 pub struct UpstreamConfig {
     /// Streamable HTTP MCP endpoint URL.
     pub url: String,
+    /// Optional logical name used by policy `route` targets.
+    /// Defaults to `upstream-{index}` in routing order.
+    pub name: Option<String>,
     /// Allows plain HTTP for explicitly configured local development endpoints.
     pub allow_insecure_http: bool,
     /// Per-request deadline in milliseconds.
     pub request_timeout_ms: u64,
 }
 
+impl UpstreamConfig {
+    /// Returns the configured name or the positional default.
+    #[must_use]
+    pub fn effective_name(&self, index: usize) -> String {
+        match &self.name {
+            Some(name) if !name.trim().is_empty() => name.trim().to_string(),
+            _ => format!("upstream-{index}"),
+        }
+    }
+}
+
 impl Default for UpstreamConfig {
     fn default() -> Self {
         Self {
             url: String::new(),
+            name: None,
             allow_insecure_http: false,
             request_timeout_ms: 30_000,
         }
     }
+}
+
+/// One policy routing rule. Rules evaluate in file order and the first
+/// matching rule decides: deny the call, pin it to a named upstream,
+/// enforce an hourly budget, redact argument fields, or any combination
+/// of pin, budget, and redaction.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PolicyRule {
+    /// Conditions selecting the requests this rule applies to.
+    #[serde(rename = "match")]
+    pub match_spec: PolicyMatch,
+    /// When present, the call is rejected with this reason.
+    pub deny: Option<String>,
+    /// Pins matching `tools/call` requests to the named upstream.
+    pub route: Option<String>,
+    /// Hourly call budget enforced for matching requests.
+    pub budget: Option<PolicyBudget>,
+    /// Dotted `arguments` paths replaced with `[REDACTED]` before forwarding.
+    pub redact: Vec<String>,
+}
+
+/// Match conditions for a [`PolicyRule`]. Every specified field must match.
+/// A rule without `method` applies to `tools/call` when `tool` is set and
+/// to every method otherwise.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PolicyMatch {
+    /// Glob (`*`, `?`) matched against the `tools/call` tool name.
+    pub tool: Option<String>,
+    /// MCP method name (for example `tools/call` or `resources/read`).
+    pub method: Option<String>,
+    /// Deployment environment; compared against `gateway.environment`.
+    pub environment: Option<String>,
+}
+
+/// Hourly budget enforced by a [`PolicyRule`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PolicyBudget {
+    /// Maximum matching calls accepted per rolling hour.
+    pub calls_per_hour: u64,
 }
 
 /// Telemetry output settings.

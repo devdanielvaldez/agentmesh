@@ -11,13 +11,32 @@ gateway:
   # Or list several static upstreams for multi-server fan-out (mutually
   # exclusive with `upstream`). Catalog lists merge across upstreams; keyed
   # calls route to the upstream that advertised the capability at startup.
+  # Give each upstream a `name` to target it from policy `route` rules
+  # (defaults to `upstream-{index}`).
   # upstreams:
   #   - url: http://127.0.0.1:3001/mcp
+  #     name: primary
   #     allow_insecure_http: true
   #     request_timeout_ms: 30000
   #   - url: http://127.0.0.1:3002/mcp
+  #     name: mirror
   #     allow_insecure_http: true
   #     request_timeout_ms: 30000
+  # Deployment environment matched by policy rules (`development` is the
+  # fail-safe default).
+  # environment: development
+  # Policy routing rules, first match wins. Each rule selects requests with
+  # `match` (tool glob, method, environment) and applies deny, route, budget,
+  # and/or redact effects. See docs/USER_GUIDE.md ("Policy routing engine").
+  # policies:
+  #   - match: { tool: "github.get_*" }
+  #     route: mirror
+  #   - match: { tool: "stripe.refund", environment: development }
+  #     deny: Refunds are disabled in development.
+  #   - match: { tool: "maps.*" }
+  #     budget: { calls_per_hour: 100 }
+  #   - match: { tool: "crm.*" }
+  #     redact: ["customer.ssn"]
 
 telemetry:
   # Prefer JSON in production and human-readable logs while developing.
