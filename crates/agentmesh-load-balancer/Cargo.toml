@@ -8,16 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
-agentmesh-registry = { path = "../agentmesh-registry", version = "0.1.0" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.2.0" }
+agentmesh-registry = { path = "../agentmesh-registry", version = "0.2.0" }
 serde.workspace = true
 
 [dev-dependencies]
-agentmesh-circuit-breaker = { path = "../agentmesh-circuit-breaker", version = "0.1.0" }
-agentmesh-core = { path = "../agentmesh-core", version = "0.1.0" }
-agentmesh-health = { path = "../agentmesh-health", version = "0.1.0" }
-agentmesh-resilience = { path = "../agentmesh-resilience", version = "0.1.0" }
-agentmesh-router = { path = "../agentmesh-router", version = "0.1.0" }
+agentmesh-circuit-breaker = { path = "../agentmesh-circuit-breaker", version = "0.2.0" }
+agentmesh-core = { path = "../agentmesh-core", version = "0.2.0" }
+agentmesh-health = { path = "../agentmesh-health", version = "0.2.0" }
+agentmesh-resilience = { path = "../agentmesh-resilience", version = "0.2.0" }
+agentmesh-router = { path = "../agentmesh-router", version = "0.2.0" }
 
 [lints]
 workspace = true
