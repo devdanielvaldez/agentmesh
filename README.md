@@ -64,6 +64,13 @@ cargo run -p agentmesh -- validate config/agentmesh.yaml
 cargo run -p agentmesh -- serve --config config/agentmesh.yaml
 ```
 
+Run the durable local control plane with an administrative token:
+
+```bash
+AGENTMESH_ADMIN_TOKEN='replace-with-at-least-16-bytes' \
+  cargo run -p agentmesh -- control-plane --database agentmesh-control.db
+```
+
 In another terminal:
 
 ```bash
@@ -89,6 +96,8 @@ crates/
 ├── agentmesh-authz/    revisioned RBAC and capability visibility
 ├── agentmesh-cache/    revision-aware bounded MCP caching
 ├── agentmesh-config/   typed configuration and validation
+├── agentmesh-control-api/ authenticated administrative HTTP/SSE API
+├── agentmesh-control-plane/ desired state, snapshots, and rollouts
 ├── agentmesh-core/     shared domain types
 ├── agentmesh-credentials/ secret references and credential brokering
 ├── agentmesh-circuit-breaker/ isolated upstream failure state machines
@@ -98,6 +107,7 @@ crates/
 ├── agentmesh-health/   active and passive endpoint health
 ├── agentmesh-load-balancer/ weighted, affinity, and adaptive selection
 ├── agentmesh-policy/   contextual decisions and approval workflow
+├── agentmesh-plugins/  capability-restricted extension contracts
 ├── agentmesh-protocol/ MCP types, negotiation, and bounded validation
 ├── agentmesh-proxy/    bounded, credential-safe upstream forwarding
 ├── agentmesh-rate-limit/ scoped rates, concurrency, and quotas
@@ -105,8 +115,11 @@ crates/
 ├── agentmesh-resilience/ deadlines, retries, queues, and bulkheads
 ├── agentmesh-router/   deterministic, explainable route resolution
 ├── agentmesh-security/ SSRF, egress, integrity, and payload defenses
+├── agentmesh-storage/  persistence contracts, memory, and SQLite
 ├── agentmesh-tasks/    task lifecycle, ownership, and backend affinity
 ├── agentmesh-telemetry/ bounded metrics, traces, and safe events
+├── agentmesh-testkit/  deterministic fixtures and failure injection
+├── agentmesh-runtime/  deployment profiles and component lifecycle
 └── agentmesh-transport/ bounded HTTP, SSE, and stdio bindings
 ```
 
@@ -123,6 +136,8 @@ and the [first architecture decision](docs/adr/0001-workspace-and-boundaries.md)
 - [x] Routing, load balancing, health checks, circuit breakers, and resilience primitives.
 - [x] API-key authentication, RBAC, contextual policies, approvals, and local rate limiting.
 - [x] Secret brokering, SSRF/integrity defenses, bounded telemetry, caching, and audit outbox.
+- [x] Desired-state control plane, administrative API, runtime profiles, storage, plugins, and testkit.
+- [x] Typed CLI resource workflow, hot reload snapshots, supervised stdio, and discovery providers.
 - [ ] External identity providers, distributed backends, and production exporters/sinks.
 - [ ] Virtual MCP servers, dashboard, and Kubernetes deployment.
 

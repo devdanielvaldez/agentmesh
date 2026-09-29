@@ -1,6 +1,6 @@
 [package]
-name = "agentmesh-transport"
-description = "Bounded stdio, Streamable HTTP, and SSE bindings for MCP"
+name = "agentmesh-plugins"
+description = "Capability-restricted extension contracts for AgentMesh"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,10 +9,9 @@ repository.workspace = true
 
 [dependencies]
 agentmesh-error = { path = "../agentmesh-error", version = "0.1.0" }
-agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.1.0" }
-http.workspace = true
+serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["io-util", "process", "sync", "time"] }
+tokio = { workspace = true, features = ["time"] }
 
 [lints]
 workspace = true

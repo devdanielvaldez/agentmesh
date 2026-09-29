@@ -25,6 +25,11 @@ use tower_http::{
 };
 use tracing::{Span, info_span};
 
+mod pipeline;
+pub use pipeline::{
+    GatewayPipeline, PipelineContext, PipelineFuture, PipelineStage, RequestMiddleware,
+};
+
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
 /// Builds the gateway router shared by production and tests.

@@ -8,6 +8,24 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Completed the platform module map with tenant-scoped storage contracts, in-memory and SQLite
+  backends, optimistic concurrency, bounded documents, stable pagination, and isolation tests.
+- Desired-state control plane with deterministic reconciliation, immutable SHA-256 runtime
+  snapshots, atomic activation, gateway acknowledgements, and rollout status tracking.
+- Authenticated versioned control API for resource apply, reconciliation, snapshot retrieval,
+  operational status, and SSE readiness events, plus CLI apply/reconcile/snapshot workflows.
+- Profile-aware runtime assembly with dependency validation, deterministic startup, readiness,
+  rollback, and reverse-order graceful shutdown.
+- Capability-restricted plugin registry with explicit grants, extension-point metadata, bounded
+  payloads, and a future-WASM-compatible JSON invocation boundary.
+- Shared deterministic testkit with fake time, seeded selection, scripted MCP transport failures,
+  protocol fixtures, and stable error assertions.
+- Expanded core domain vocabulary, layered configuration/env precedence, atomic hot reload, JSON
+  Schema output, typed MCP tool/resource/prompt/task payloads, and bounded list cursors.
+- Session TTL/cancellation, WebSocket framing, supervised allowlisted stdio processes, DNS,
+  container, Kubernetes, self-registration and plugin discovery providers, plus a canonical
+  fail-closed gateway pipeline.
+- CLI configuration schema, diff and doctor commands together with control-plane resource commands.
 - Opaque secret references and a tenant-scoped credential broker with pluggable providers,
   deterministic selection, short-lived caching, rotation/revocation, zeroing, and redacted leases.
 - Central SSRF and egress defenses with host/port allowlists, public-IP enforcement, DNS pinning,

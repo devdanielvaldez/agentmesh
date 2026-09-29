@@ -13,11 +13,17 @@ name = "agentmesh"
 version = "0.1.0"
 dependencies = [
  "agentmesh-config",
+ "agentmesh-control-api",
+ "agentmesh-control-plane",
  "agentmesh-gateway",
  "agentmesh-proxy",
+ "agentmesh-storage",
  "anyhow",
  "axum",
  "clap",
+ "reqwest",
+ "serde_json",
+ "serde_yaml",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -83,8 +89,36 @@ name = "agentmesh-config"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "serde_yaml",
  "thiserror",
+]
+
+[[package]]
+name = "agentmesh-control-api"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-control-plane",
+ "agentmesh-error",
+ "agentmesh-storage",
+ "axum",
+ "http",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tower",
+]
+
+[[package]]
+name = "agentmesh-control-plane"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-storage",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -173,6 +207,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-plugins"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "agentmesh-policy"
 version = "0.1.0"
 dependencies = [
@@ -253,6 +297,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-runtime"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "serde",
+]
+
+[[package]]
 name = "agentmesh-security"
 version = "0.1.0"
 dependencies = [
@@ -260,6 +312,17 @@ dependencies = [
  "serde_json",
  "sha2",
  "url",
+]
+
+[[package]]
+name = "agentmesh-storage"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -279,6 +342,17 @@ dependencies = [
  "agentmesh-error",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "agentmesh-testkit"
+version = "0.1.0"
+dependencies = [
+ "agentmesh-error",
+ "agentmesh-protocol",
+ "agentmesh-transport",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1387,6 +1461,8 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",

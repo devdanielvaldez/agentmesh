@@ -19,6 +19,8 @@ pub enum TransportKind {
     StreamableHttp,
     /// Server-Sent Events response stream.
     ServerSentEvents,
+    /// One MCP message per WebSocket text frame.
+    WebSocket,
 }
 
 /// Object-safe asynchronous message transport.
