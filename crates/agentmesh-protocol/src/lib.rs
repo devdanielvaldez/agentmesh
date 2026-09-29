@@ -7,6 +7,7 @@
 mod capability;
 mod jsonrpc;
 mod lifecycle;
+mod messages;
 mod metadata;
 mod method;
 mod name;
@@ -20,6 +21,11 @@ pub use jsonrpc::{
 };
 pub use lifecycle::{
     DiscoverResult, DiscoverResultType, InitializeParams, InitializeResult, ResultMeta,
+};
+pub use messages::{
+    CallToolParams, CallToolResult, ContentBlock, GetPromptParams, ListResult, PromptDefinition,
+    ReadResourceParams, ResourceContents, ResourceDefinition, TaskReference, TaskStatus,
+    ToolDefinition,
 };
 pub use metadata::{
     CLIENT_CAPABILITIES_KEY, CLIENT_INFO_KEY, PROTOCOL_VERSION_KEY, RequestMeta, SERVER_INFO_KEY,
