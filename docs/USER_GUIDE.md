@@ -50,6 +50,39 @@ telemetry:
 `allow_insecure_http` defaults to `false`. Keep that default for remote upstreams. Static upstream
 URLs are validated before the listener starts.
 
+### Multiple upstreams
+
+Use `upstreams` (a list, mutually exclusive with `upstream`) to serve several
+MCP servers from one gateway:
+
+```yaml
+gateway:
+  host: 127.0.0.1
+  port: 8080
+  upstreams:
+    - url: http://127.0.0.1:3001/mcp
+      allow_insecure_http: true
+      request_timeout_ms: 30000
+    - url: http://127.0.0.1:3002/mcp
+      allow_insecure_http: true
+      request_timeout_ms: 30000
+```
+
+Routing semantics with more than one upstream:
+
+- `tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`
+  fan out and merge (JSON is forced so pages can combine).
+- `tools/call` and `prompts/get` route by discovered name;
+  `resources/read` and the subscription methods route by discovered URI.
+  Unknown names return `CAPABILITY_NOT_FOUND`.
+- `ping` fans out; every upstream must answer. Notifications broadcast to all.
+- Any other method (including `server/discover`, `initialize`, tasks) is
+  rejected with `INVALID_REQUEST`: it needs a single upstream.
+- Duplicate capability names resolve to the first upstream in config order.
+- Paginated catalogs (`nextCursor`) cannot merge and are rejected.
+- Startup discovery is fail-closed: if any upstream cannot be listed, the
+  gateway refuses to start rather than serving a partial mesh.
+
 ### Validate and inspect
 
 ```bash
@@ -61,9 +94,9 @@ agentmesh diff config/current.yaml config/candidate.yaml
 
 The commands have these failure semantics:
 
-- `validate` fails on unreadable YAML, unknown keys, invalid addresses, port zero, empty upstreams,
-  and zero request timeouts;
-- `doctor` prints resolved listener and upstream presence after validation;
+- `validate` fails on unreadable YAML, unknown keys, invalid addresses, port zero, empty upstream
+  URLs, `upstream` combined with `upstreams`, duplicate upstream URLs, and zero request timeouts;
+- `doctor` prints resolved listener and upstream count after validation;
 - `schema` writes JSON Schema to standard output;
 - `diff` validates both inputs before reporting a normalized YAML difference.
 

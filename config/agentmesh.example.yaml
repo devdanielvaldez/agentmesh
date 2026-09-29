@@ -8,6 +8,16 @@ gateway:
   #   url: http://127.0.0.1:3001/mcp
   #   allow_insecure_http: true
   #   request_timeout_ms: 30000
+  # Or list several static upstreams for multi-server fan-out (mutually
+  # exclusive with `upstream`). Catalog lists merge across upstreams; keyed
+  # calls route to the upstream that advertised the capability at startup.
+  # upstreams:
+  #   - url: http://127.0.0.1:3001/mcp
+  #     allow_insecure_http: true
+  #     request_timeout_ms: 30000
+  #   - url: http://127.0.0.1:3002/mcp
+  #     allow_insecure_http: true
+  #     request_timeout_ms: 30000
 
 telemetry:
   # Prefer JSON in production and human-readable logs while developing.
