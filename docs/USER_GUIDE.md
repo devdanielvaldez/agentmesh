@@ -138,6 +138,22 @@ curl --fail-with-body http://127.0.0.1:8080/mcp \
 The gateway returns a disclosure-safe error envelope if no upstream is configured, the transport
 binding is invalid, or the upstream fails.
 
+### Live monitoring
+
+Every `/mcp` request is accounted in memory (method, tool name or resource URI,
+serving upstream, HTTP status, latency — never bodies or credentials) and served
+from `GET /metrics`:
+
+```bash
+curl --fail http://127.0.0.1:8080/metrics
+agentmesh metrics --gateway http://127.0.0.1:8080
+agentmesh monitor --gateway http://127.0.0.1:8080 --interval-ms 1000
+```
+
+`metrics` prints one JSON snapshot; `monitor` redraws a dashboard (per-method
+and per-upstream tables plus recent requests) until interrupted with Ctrl-C.
+The gateway URL can also come from `AGENTMESH_GATEWAY_URL`.
+
 ## Control-plane workflow
 
 ### Start the service

@@ -19,7 +19,9 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -31,19 +33,32 @@ jobs:
           key: ${{ matrix.target }}
       - name: Build binary
         run: cargo build --release --locked --target ${{ matrix.target }} -p agentmesh
-      - name: Package binary
+      - name: Package binary (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir staging
           cp target/${{ matrix.target }}/release/agentmesh staging/
-          cp README.md LICENSE staging/
+          cp README.md LICENSE config/agentmesh.example.yaml staging/
           tar -C staging -czf agentmesh-${{ github.ref_name }}-${{ matrix.target }}.tar.gz .
           shasum -a 256 agentmesh-${{ github.ref_name }}-${{ matrix.target }}.tar.gz > agentmesh-${{ github.ref_name }}-${{ matrix.target }}.tar.gz.sha256
+      - name: Package binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path staging | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/agentmesh.exe, README.md, LICENSE, config/agentmesh.example.yaml staging/
+          $Zip = "agentmesh-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          Compress-Archive -Path staging/* -DestinationPath $Zip
+          $Hash = (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower()
+          "$Hash  $Zip" | Out-File -Encoding ascii "$Zip.sha256"
       - uses: actions/upload-artifact@v7
         with:
           name: agentmesh-${{ matrix.target }}
           path: |
             agentmesh-*.tar.gz
             agentmesh-*.tar.gz.sha256
+            agentmesh-*.zip
+            agentmesh-*.zip.sha256
           if-no-files-found: error
 
   publish:
@@ -61,3 +76,5 @@ jobs:
           files: |
             artifacts/*.tar.gz
             artifacts/*.tar.gz.sha256
+            artifacts/*.zip
+            artifacts/*.zip.sha256
