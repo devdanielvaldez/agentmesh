@@ -32,6 +32,9 @@ use crate::{
 
 /// JSON-RPC "method not found": the upstream does not offer that catalog family.
 const METHOD_NOT_FOUND: i32 = -32_601;
+/// Internal attribution header naming the serving target (`0`, `1`, …) or the
+/// fan-out mode (`merged`, `ping`, `broadcast`). Gateways read and strip it.
+pub const UPSTREAM_ROUTE_HEADER: &str = "x-agentmesh-upstream";
 /// Merge bound matching the protocol list-item bound.
 const MERGED_LIST_LIMIT: usize = 10_000;
 
@@ -360,7 +363,11 @@ impl MultiUpstreamProxy {
         if let Some(credential) = credential {
             outgoing = outgoing.with_credential(credential);
         }
-        self.proxy.execute(outgoing).await
+        let label = index.to_string();
+        self.proxy
+            .execute(outgoing)
+            .await
+            .and_then(|response| tag_route(response, &label))
     }
 
     /// Fans out a catalog list and merges the raw pages.
@@ -394,7 +401,7 @@ impl MultiUpstreamProxy {
                 .collect()
         };
         let mut merged = Vec::new();
-        for (_, target) in eligible {
+        for (index, target) in &eligible {
             let outgoing = ProxyRequest::new(target.endpoint.clone(), message.clone())
                 .with_headers(json_accept(&headers))
                 .with_timeout(target.timeout);
@@ -408,11 +415,15 @@ impl MultiUpstreamProxy {
                     if error_code(&response) == Some(METHOD_NOT_FOUND) {
                         continue;
                     }
-                    return Ok(ProxyResponse::new(
-                        StatusCode::OK,
-                        HeaderMap::new(),
-                        ProxyBody::Json(JsonRpcMessage::Response(response)),
-                    ));
+                    let label = index.to_string();
+                    return tag_route(
+                        ProxyResponse::new(
+                            StatusCode::OK,
+                            HeaderMap::new(),
+                            ProxyBody::Json(JsonRpcMessage::Response(response)),
+                        ),
+                        &label,
+                    );
                 }
                 _ => {
                     return Err(AgentMeshError::new(
@@ -430,14 +441,17 @@ impl MultiUpstreamProxy {
         }
         let mut result = serde_json::Map::with_capacity(1);
         result.insert(key.to_string(), Value::Array(merged));
-        Ok(ProxyResponse::new(
-            StatusCode::OK,
-            HeaderMap::new(),
-            ProxyBody::Json(JsonRpcMessage::Response(JsonRpcResponse::success(
-                id,
-                Value::Object(result),
-            ))),
-        ))
+        tag_route(
+            ProxyResponse::new(
+                StatusCode::OK,
+                HeaderMap::new(),
+                ProxyBody::Json(JsonRpcMessage::Response(JsonRpcResponse::success(
+                    id,
+                    Value::Object(result),
+                ))),
+            ),
+            "merged",
+        )
     }
 
     /// Fans out `ping`; every upstream must answer successfully.
@@ -447,16 +461,20 @@ impl MultiUpstreamProxy {
         headers: HeaderMap,
     ) -> Result<ProxyResponse, AgentMeshError> {
         let mut first: Option<ProxyResponse> = None;
-        for target in &self.targets {
+        for (index, target) in self.targets.iter().enumerate() {
             let outgoing = ProxyRequest::new(target.endpoint.clone(), message.clone())
                 .with_headers(headers.clone())
                 .with_timeout(target.timeout);
             let (status, headers, body) = self.proxy.execute(outgoing).await?.into_parts();
             if is_error_envelope(&body) {
-                return Ok(ProxyResponse::new(status, headers, body));
+                let label = index.to_string();
+                return tag_route(ProxyResponse::new(status, headers, body), &label);
             }
             if first.is_none() {
-                first = Some(ProxyResponse::new(status, headers, body));
+                first = Some(tag_route(
+                    ProxyResponse::new(status, headers, body),
+                    "ping",
+                )?);
             }
         }
         first.ok_or_else(|| AgentMeshError::new(ErrorCode::Internal, "Fan-out has no targets."))
@@ -485,12 +503,29 @@ impl MultiUpstreamProxy {
                 ));
             }
         }
+        let mut headers = HeaderMap::new();
+        headers.insert(UPSTREAM_ROUTE_HEADER, HeaderValue::from_static("broadcast"));
         Ok(ProxyResponse::new(
             StatusCode::ACCEPTED,
-            HeaderMap::new(),
+            headers,
             ProxyBody::Empty,
         ))
     }
+}
+
+/// Tags a fan-out response with its serving target for gateway accounting.
+fn tag_route(response: ProxyResponse, label: &str) -> Result<ProxyResponse, AgentMeshError> {
+    let (status, mut headers, body) = response.into_parts();
+    headers.insert(
+        UPSTREAM_ROUTE_HEADER,
+        HeaderValue::from_str(label).map_err(|_| {
+            AgentMeshError::new(
+                ErrorCode::Internal,
+                "The route label cannot be represented as a header.",
+            )
+        })?,
+    );
+    Ok(ProxyResponse::new(status, headers, body))
 }
 
 impl McpProxy for MultiUpstreamProxy {
@@ -555,12 +590,7 @@ fn json_accept(source: &HeaderMap) -> HeaderMap {
 }
 
 /// Indexes catalog names into a routing table; first upstream wins on conflict.
-fn index_names(
-    table: &mut HashMap<String, usize>,
-    items: &[Value],
-    name_key: &str,
-    index: usize,
-) {
+fn index_names(table: &mut HashMap<String, usize>, items: &[Value], name_key: &str, index: usize) {
     for item in items {
         let Some(name) = item.get(name_key).and_then(Value::as_str) else {
             tracing::warn!(upstream = index, "Skipping unnamed catalog entry.");
@@ -887,13 +917,46 @@ mod tests {
         }
 
         let called = fanout
+            .execute_message(call_like("add", serde_json::Map::new()), HeaderMap::new())
+            .await
+            .expect("routed call");
+        assert!(response_text(called).contains("calc says 12"));
+
+        for handle in handles {
+            handle.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn responses_carry_route_attribution() {
+        let (fanout, handles) = fanout(vec![
+            (vec![("add", "calc says 12")], true),
+            (vec![("note_list", "notes say hi")], true),
+        ])
+        .await;
+
+        let called = fanout
             .execute_message(
-                call_like("add", serde_json::Map::new()),
+                call_like("note_list", serde_json::Map::new()),
                 HeaderMap::new(),
             )
             .await
             .expect("routed call");
-        assert!(response_text(called).contains("calc says 12"));
+        let (_, headers, _) = called.into_parts();
+        assert_eq!(
+            headers.get(UPSTREAM_ROUTE_HEADER).expect("route header"),
+            "1"
+        );
+
+        let listed = fanout
+            .execute_message(discovery_like("tools/list"), HeaderMap::new())
+            .await
+            .expect("merged list");
+        let (_, headers, _) = listed.into_parts();
+        assert_eq!(
+            headers.get(UPSTREAM_ROUTE_HEADER).expect("route header"),
+            "merged"
+        );
 
         for handle in handles {
             handle.abort();

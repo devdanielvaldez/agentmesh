@@ -59,6 +59,29 @@ enum Command {
         #[arg(value_name = "FILE")]
         config: PathBuf,
     },
+    /// Prints a one-shot JSON metrics snapshot from a running gateway.
+    Metrics {
+        /// Gateway base URL.
+        #[arg(
+            long,
+            env = "AGENTMESH_GATEWAY_URL",
+            default_value = "http://127.0.0.1:8080"
+        )]
+        gateway: String,
+    },
+    /// Monitors a running gateway live until interrupted.
+    Monitor {
+        /// Gateway base URL.
+        #[arg(
+            long,
+            env = "AGENTMESH_GATEWAY_URL",
+            default_value = "http://127.0.0.1:8080"
+        )]
+        gateway: String,
+        /// Refresh interval in milliseconds.
+        #[arg(long, default_value_t = 1000)]
+        interval_ms: u64,
+    },
     /// Prints the configuration JSON Schema.
     Schema,
     /// Compares two validated configuration files.
@@ -143,6 +166,11 @@ async fn main() -> Result<()> {
             println!("configuration is valid: {}", config.display());
             Ok(())
         }
+        Command::Metrics { gateway } => print_metrics(&gateway).await,
+        Command::Monitor {
+            gateway,
+            interval_ms,
+        } => monitor_gateway(&gateway, interval_ms).await,
         Command::Schema => {
             println!("{}", serde_json::to_string_pretty(&Config::json_schema())?);
             Ok(())
@@ -208,6 +236,151 @@ async fn serve_control_plane(
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("control plane stopped unexpectedly")
+}
+
+async fn fetch_metrics(gateway: &str) -> Result<serde_json::Value> {
+    let url = format!("{}/metrics", gateway.trim_end_matches('/'));
+    let response = reqwest::Client::new()
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("failed to reach gateway metrics at {url}"))?;
+    if !response.status().is_success() {
+        anyhow::bail!("gateway metrics returned {}", response.status());
+    }
+    response
+        .json::<serde_json::Value>()
+        .await
+        .context("gateway metrics are not valid JSON")
+}
+
+async fn print_metrics(gateway: &str) -> Result<()> {
+    let metrics = fetch_metrics(gateway).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&metrics).context("failed to format metrics")?
+    );
+    Ok(())
+}
+
+async fn monitor_gateway(gateway: &str, interval_ms: u64) -> Result<()> {
+    let interval = Duration::from_millis(interval_ms.max(100));
+    loop {
+        match fetch_metrics(gateway).await {
+            Ok(metrics) => render_dashboard(gateway, &metrics, interval_ms),
+            Err(error) => {
+                print!("\x1B[2J\x1B[H");
+                println!("AgentMesh live — {gateway}\n\nwaiting for gateway: {error:#}");
+            }
+        }
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        tokio::time::sleep(interval).await;
+    }
+}
+
+/// Renders one dashboard frame from a metrics snapshot.
+fn render_dashboard(gateway: &str, metrics: &serde_json::Value, interval_ms: u64) {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "AgentMesh live — {gateway} ({interval_ms}ms refresh, Ctrl-C to quit)\n"
+    );
+    let _ = writeln!(
+        out,
+        "uptime {}s | requests {} (errors {})",
+        metric_u64(metrics, &["uptime_secs"]),
+        metric_u64(metrics, &["requests"]),
+        metric_u64(metrics, &["errors"]),
+    );
+    render_table(&mut out, "METHOD", metrics.get("methods"));
+    render_table(&mut out, "UPSTREAM", metrics.get("upstreams"));
+    let _ = writeln!(out, "\nRECENT");
+    if let Some(recent) = metrics.get("recent").and_then(|value| value.as_array()) {
+        for event in recent.iter().rev().take(12) {
+            let _ = writeln!(
+                out,
+                "  {:>4}s {:<22} {:<28} -> {:<8} {} {}ms",
+                event
+                    .get("age_secs")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0),
+                event
+                    .get("method")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-"),
+                event
+                    .get("detail")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-"),
+                event
+                    .get("upstream")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                event
+                    .get("status")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0),
+                event
+                    .get("latency_ms")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0),
+            );
+        }
+    }
+    print!("\x1B[2J\x1B[H{out}");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+}
+
+/// Renders one aggregated counters table.
+fn render_table(out: &mut String, title: &str, table: Option<&serde_json::Value>) {
+    use std::fmt::Write as _;
+    let _ = writeln!(
+        out,
+        "\n{title:<22} {:>6} {:>6} {:>7} {:>7}",
+        "REQ", "ERR", "AVGms", "MAXms"
+    );
+    let mut rows: Vec<(&str, &serde_json::Value)> = table
+        .and_then(|value| value.as_object())
+        .map(|map| map.iter().map(|(name, row)| (name.as_str(), row)).collect())
+        .unwrap_or_default();
+    rows.sort_by_key(|(_, row)| {
+        std::cmp::Reverse(
+            row.get("requests")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        )
+    });
+    for (name, row) in rows {
+        let _ = writeln!(
+            out,
+            "{name:<22} {:>6} {:>6} {:>7} {:>7}",
+            row.get("requests")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+            row.get("errors")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+            row.get("avg_latency_ms")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+            row.get("max_latency_ms")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        );
+    }
+}
+
+/// Reads one unsigned metric with a safe default.
+fn metric_u64(metrics: &serde_json::Value, path: &[&str]) -> u64 {
+    let mut current = metrics;
+    for key in path {
+        current = match current.get(key) {
+            Some(next) => next,
+            None => return 0,
+        };
+    }
+    current.as_u64().unwrap_or(0)
 }
 
 fn diff(current: &PathBuf, candidate: &PathBuf) -> Result<()> {

@@ -111,12 +111,21 @@ For the deeper design, see [Technical Architecture](docs/T_ARCHITECTURE.md),
 
 ### Prerequisites
 
-- Rust `1.85` or newer, installed through [rustup](https://rustup.rs/).
 - Git.
-- Optional: Docker with Compose for the container workflow.
 - An MCP Streamable HTTP server if you want to proxy real requests.
+- Optional: Docker with Compose for the container workflow.
+- Only for building from source: Rust `1.85` or newer through [rustup](https://rustup.rs/).
 
-### 1. Clone and build
+### Install (prebuilt binary)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/devdanielvaldez/agentmesh/main/install.sh | sh
+```
+
+Windows (PowerShell): `irm .../install.ps1 | iex`. All options, manual
+downloads, and checksums: [INSTALL.md](INSTALL.md).
+
+### 1. Clone and build (from source)
 
 ```bash
 git clone https://github.com/devdanielvaldez/agentmesh.git
@@ -320,6 +329,8 @@ cargo run -p agentmesh -- diff current.yaml candidate.yaml
 | `apply` | Create or revision-match a desired-state resource. |
 | `reconcile` | Compile desired state into the next immutable snapshot. |
 | `snapshot` | Retrieve the active snapshot for one tenant and namespace. |
+| `metrics` | Print a one-shot JSON metrics snapshot from a running gateway. |
+| `monitor` | Watch a running gateway live until interrupted. |
 
 Use `agentmesh <command> --help` for all flags. Complete command and API examples live in the
 [User Guide](docs/USER_GUIDE.md).

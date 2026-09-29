@@ -1,1 +1,0 @@
-AgentMesh demo file 2: gateway valida y proxea MCP.
