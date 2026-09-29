@@ -1,6 +1,8 @@
 * @devdanielvaldez
 
 /.github/ @devdanielvaldez
+/docs/ @devdanielvaldez
 /crates/agentmesh-gateway/ @devdanielvaldez
+/crates/agentmesh-control-api/ @devdanielvaldez
+/crates/agentmesh-control-plane/ @devdanielvaldez
 /SECURITY.md @devdanielvaldez
-

@@ -1,0 +1,10 @@
+{
+  "kind": "route",
+  "name": "search-primary",
+  "state": "active",
+  "spec": {
+    "service": "search",
+    "capability": "search.query",
+    "strategy": "least_active"
+  }
+}
