@@ -8,6 +8,12 @@
 //! capability during startup discovery. `ping` fans out to all upstreams and
 //! notifications are broadcast. Any other method requires a single upstream
 //! and is rejected explicitly so callers never observe silent partial routing.
+//!
+//! `tools/list` is mandatory per upstream; the remaining families are
+//! optional, because most real servers implement none of them (bridges answer
+//! those methods with HTTP 404 and "method not found"). List merges only query
+//! targets that advertised the family, so absent families merge as empty
+//! instead of failing the request.
 
 use std::{collections::HashMap, sync::RwLock, time::Duration};
 
@@ -38,6 +44,19 @@ pub struct UpstreamTarget {
     pub timeout: Duration,
 }
 
+/// Catalog families a target advertised at discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CatalogFamily {
+    /// Upstream answered `tools/list`.
+    Tools,
+    /// Upstream answered `resources/list`.
+    Resources,
+    /// Upstream answered `resources/templates/list`.
+    Templates,
+    /// Upstream answered `prompts/list`.
+    Prompts,
+}
+
 /// Discovery-built capability tables mapping names to target indexes.
 #[derive(Debug, Default)]
 struct DiscoveryTables {
@@ -47,6 +66,8 @@ struct DiscoveryTables {
     resources: HashMap<String, usize>,
     /// Prompt name to target index.
     prompts: HashMap<String, usize>,
+    /// Advertised families per target, in target order.
+    support: Vec<Vec<CatalogFamily>>,
 }
 
 /// Fan-out proxy over several static upstreams.
@@ -87,10 +108,11 @@ impl MultiUpstreamProxy {
 
     /// Discovers catalogs on every target and builds the routing tables.
     ///
-    /// An upstream that answers `tools/list`, `resources/list`, or
-    /// `prompts/list` with JSON-RPC "method not found" is treated as not
-    /// offering that family. Any other failure aborts initialization so the
-    /// gateway never serves a silently partial mesh.
+    /// `tools/list` is mandatory: its failure aborts initialization so the
+    /// gateway never serves a silently partial mesh. The remaining families
+    /// are optional per upstream — most real servers implement none of them,
+    /// and bridges answer HTTP 404 with "method not found" — so a failed
+    /// family query only marks that family absent for that upstream.
     ///
     /// # Errors
     ///
@@ -98,45 +120,62 @@ impl MultiUpstreamProxy {
     pub async fn initialize(&self) -> Result<(), AgentMeshError> {
         let mut tables = DiscoveryTables::default();
         for (index, target) in self.targets.iter().enumerate() {
-            for (method, key, name_key) in [
-                (McpMethod::ToolsList, "tools", "name"),
-                (McpMethod::ResourcesList, "resources", "uri"),
-                (McpMethod::PromptsList, "prompts", "name"),
+            let mut support = Vec::with_capacity(4);
+            let tool_items = self
+                .fetch_list(target, McpMethod::ToolsList, "tools")
+                .await
+                .map_err(|error| {
+                    AgentMeshError::with_source(
+                        ErrorCode::UpstreamUnavailable,
+                        format!(
+                            "Upstream #{index} tools/list discovery failed; refusing partial mesh."
+                        ),
+                        error,
+                    )
+                })?;
+            support.push(CatalogFamily::Tools);
+            index_names(&mut tables.tools, &tool_items, "name", index);
+            for (method, family, key, name_key) in [
+                (
+                    McpMethod::ResourcesList,
+                    CatalogFamily::Resources,
+                    "resources",
+                    "uri",
+                ),
+                (
+                    McpMethod::ResourcesTemplatesList,
+                    CatalogFamily::Templates,
+                    "resourceTemplates",
+                    "uri",
+                ),
+                (
+                    McpMethod::PromptsList,
+                    CatalogFamily::Prompts,
+                    "prompts",
+                    "name",
+                ),
             ] {
-                let items = self
-                    .fetch_list(target, method, key)
-                    .await
-                    .map_err(|error| {
-                        AgentMeshError::with_source(
-                            ErrorCode::UpstreamUnavailable,
-                            format!(
-                                "Upstream #{index} could not be discovered; refusing partial mesh."
-                            ),
-                            error,
-                        )
-                    })?;
-                let table = match key {
-                    "tools" => &mut tables.tools,
-                    "resources" => &mut tables.resources,
-                    _ => &mut tables.prompts,
-                };
-                for item in items {
-                    let Some(name) = item.get(name_key).and_then(Value::as_str) else {
-                        tracing::warn!(upstream = index, key, "Skipping unnamed catalog entry.");
-                        continue;
-                    };
-                    if let Some(previous) = table.insert(name.to_string(), index) {
-                        if previous != index {
-                            tracing::warn!(
-                                name,
-                                kept = previous,
-                                dropped = index,
-                                "Duplicate capability across upstreams; first upstream wins."
-                            );
-                        }
+                match self.fetch_list(target, method, key).await {
+                    Ok(items) => {
+                        support.push(family);
+                        let table = match family {
+                            CatalogFamily::Resources => &mut tables.resources,
+                            CatalogFamily::Prompts => &mut tables.prompts,
+                            CatalogFamily::Tools | CatalogFamily::Templates => continue,
+                        };
+                        index_names(table, &items, name_key, index);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            upstream = index,
+                            key,
+                            error = %error,
+                            "Catalog family unavailable; treating it as absent for this upstream."
+                        );
                     }
                 }
             }
+            tables.support.push(support);
         }
         *self.tables.write().map_err(|_| {
             AgentMeshError::new(
@@ -325,6 +364,10 @@ impl MultiUpstreamProxy {
     }
 
     /// Fans out a catalog list and merges the raw pages.
+    ///
+    /// Only targets that advertised the family at discovery are queried; the
+    /// rest contribute nothing. A supporting target that fails now propagates
+    /// its failure instead of silently shrinking the catalog.
     async fn merge_lists(
         &self,
         message: JsonRpcMessage,
@@ -332,8 +375,26 @@ impl MultiUpstreamProxy {
         key: &str,
     ) -> Result<ProxyResponse, AgentMeshError> {
         let id = request_id(&message);
+        let eligible: Vec<(usize, &UpstreamTarget)> = {
+            let tables = self.tables.read().map_err(|_| {
+                AgentMeshError::new(
+                    ErrorCode::ConfigurationUnavailable,
+                    "The fan-out routing tables are unavailable.",
+                )
+            })?;
+            self.targets
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| {
+                    tables
+                        .support
+                        .get(*index)
+                        .is_some_and(|support| family_supported(support, key))
+                })
+                .collect()
+        };
         let mut merged = Vec::new();
-        for target in &self.targets {
+        for (_, target) in eligible {
             let outgoing = ProxyRequest::new(target.endpoint.clone(), message.clone())
                 .with_headers(json_accept(&headers))
                 .with_timeout(target.timeout);
@@ -462,8 +523,15 @@ fn discovery_message(method: McpMethod) -> JsonRpcMessage {
 const MCP_PROTOCOL_VERSION_HEADER: HeaderName = HeaderName::from_static("mcp-protocol-version");
 
 /// Builds headers for internal discovery requests.
+///
+/// Includes the Streamable HTTP `Accept` pair: strict servers answer 406
+/// without it, which would fail closed startup discovery.
 fn discovery_headers() -> Result<HeaderMap, AgentMeshError> {
     let mut headers = HeaderMap::new();
+    headers.insert(
+        http::header::ACCEPT,
+        HeaderValue::from_static("application/json, text/event-stream"),
+    );
     headers.insert(
         MCP_PROTOCOL_VERSION_HEADER,
         HeaderValue::from_str(LATEST_PROTOCOL_VERSION).map_err(|_| {
@@ -484,6 +552,42 @@ fn json_accept(source: &HeaderMap) -> HeaderMap {
         HeaderValue::from_static("application/json"),
     );
     headers
+}
+
+/// Indexes catalog names into a routing table; first upstream wins on conflict.
+fn index_names(
+    table: &mut HashMap<String, usize>,
+    items: &[Value],
+    name_key: &str,
+    index: usize,
+) {
+    for item in items {
+        let Some(name) = item.get(name_key).and_then(Value::as_str) else {
+            tracing::warn!(upstream = index, "Skipping unnamed catalog entry.");
+            continue;
+        };
+        if let Some(previous) = table.insert(name.to_string(), index) {
+            if previous != index {
+                tracing::warn!(
+                    name,
+                    kept = previous,
+                    dropped = index,
+                    "Duplicate capability across upstreams; first upstream wins."
+                );
+            }
+        }
+    }
+}
+
+/// Reports whether a target advertised a merged list family at discovery.
+fn family_supported(support: &[CatalogFamily], key: &str) -> bool {
+    let family = match key {
+        "tools" => CatalogFamily::Tools,
+        "resources" => CatalogFamily::Resources,
+        "resourceTemplates" => CatalogFamily::Templates,
+        _ => CatalogFamily::Prompts,
+    };
+    support.contains(&family)
 }
 
 /// Extracts the MCP method from any message shape.
@@ -560,11 +664,29 @@ mod tests {
     #[derive(Clone)]
     struct FakeServer {
         tools: Vec<(String, String)>,
+        /// When false, non-tool families answer HTTP 404 like real bridges.
+        full_catalog: bool,
     }
 
-    async fn handler(State(state): State<FakeServer>, Json(body): Json<Value>) -> Json<Value> {
+    async fn handler(
+        State(state): State<FakeServer>,
+        Json(body): Json<Value>,
+    ) -> (StatusCode, Json<Value>) {
         let id = body.get("id").cloned().unwrap_or(Value::Null);
         let method = body.get("method").and_then(Value::as_str).unwrap_or("");
+        if !state.full_catalog
+            && matches!(
+                method,
+                "resources/list" | "resources/templates/list" | "prompts/list"
+            )
+        {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(
+                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32_601, "message": "Method not found"}}),
+                ),
+            );
+        }
         let result = match method {
             "tools/list" => json!({"tools": state
                 .tools
@@ -591,20 +713,30 @@ mod tests {
             "prompts/list" => json!({"prompts": []}),
             "ping" => json!({}),
             _ => {
-                return Json(
-                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32_601, "message": "no such method"}}),
+                return (
+                    StatusCode::OK,
+                    Json(
+                        json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32_601, "message": "no such method"}}),
+                    ),
                 );
             }
         };
-        Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+        (
+            StatusCode::OK,
+            Json(json!({"jsonrpc": "2.0", "id": id, "result": result})),
+        )
     }
 
-    async fn start_fake(tools: Vec<(&str, &str)>) -> (UpstreamTarget, JoinHandle<()>) {
+    async fn start_fake(
+        tools: Vec<(&str, &str)>,
+        full_catalog: bool,
+    ) -> (UpstreamTarget, JoinHandle<()>) {
         let state = FakeServer {
             tools: tools
                 .into_iter()
                 .map(|(name, text)| (name.to_string(), text.to_string()))
                 .collect(),
+            full_catalog,
         };
         let app = Router::new().route("/mcp", post(handler)).with_state(state);
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -621,11 +753,13 @@ mod tests {
         (target, handle)
     }
 
-    async fn fanout(tools: Vec<Vec<(&str, &str)>>) -> (MultiUpstreamProxy, Vec<JoinHandle<()>>) {
+    async fn fanout(
+        tools: Vec<(Vec<(&str, &str)>, bool)>,
+    ) -> (MultiUpstreamProxy, Vec<JoinHandle<()>>) {
         let mut targets = Vec::new();
         let mut handles = Vec::new();
-        for server_tools in tools {
-            let (target, handle) = start_fake(server_tools).await;
+        for (server_tools, full_catalog) in tools {
+            let (target, handle) = start_fake(server_tools, full_catalog).await;
             targets.push(target);
             handles.push(handle);
         }
@@ -641,11 +775,21 @@ mod tests {
         assert!(MultiUpstreamProxy::new(proxy, Vec::new()).is_err());
     }
 
+    #[test]
+    fn discovery_headers_carry_version_and_accept() {
+        let headers = discovery_headers().expect("discovery headers");
+        assert_eq!(
+            headers.get(http::header::ACCEPT).expect("accept header"),
+            "application/json, text/event-stream"
+        );
+        assert!(headers.contains_key(MCP_PROTOCOL_VERSION_HEADER));
+    }
+
     #[tokio::test]
     async fn lists_merge_and_calls_route_to_owners() {
         let (fanout, handles) = fanout(vec![
-            vec![("add", "calc says 12")],
-            vec![("note_list", "notes say hi")],
+            (vec![("add", "calc says 12")], true),
+            (vec![("note_list", "notes say hi")], true),
         ])
         .await;
 
@@ -673,7 +817,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_tool_is_rejected() {
-        let (fanout, handles) = fanout(vec![vec![("add", "calc says 12")]]).await;
+        let (fanout, handles) = fanout(vec![(vec![("add", "calc says 12")], true)]).await;
         let error = fanout
             .execute_message(
                 call_like("missing", serde_json::Map::new()),
@@ -689,7 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_routable_method_is_rejected() {
-        let (fanout, handles) = fanout(vec![vec![("add", "calc says 12")]]).await;
+        let (fanout, handles) = fanout(vec![(vec![("add", "calc says 12")], true)]).await;
         let error = fanout
             .execute_message(discovery_like("server/discover"), HeaderMap::new())
             .await
@@ -703,8 +847,8 @@ mod tests {
     #[tokio::test]
     async fn ping_fans_out_to_every_target() {
         let (fanout, handles) = fanout(vec![
-            vec![("add", "calc says 12")],
-            vec![("note_list", "notes say hi")],
+            (vec![("add", "calc says 12")], true),
+            (vec![("note_list", "notes say hi")], true),
         ])
         .await;
         assert_eq!(fanout.target_count(), 2);
@@ -715,6 +859,58 @@ mod tests {
         for handle in handles {
             handle.abort();
         }
+    }
+
+    #[tokio::test]
+    async fn tools_only_upstream_initializes_and_merges_empty_catalogs() {
+        // Regression: real servers answer non-tool families with HTTP 404,
+        // which must mark the family absent instead of failing discovery.
+        let (fanout, handles) = fanout(vec![(vec![("add", "calc says 12")], false)]).await;
+
+        let listed = fanout
+            .execute_message(discovery_like("tools/list"), HeaderMap::new())
+            .await
+            .expect("merged tools");
+        assert!(list_names(listed, "tools").contains(&"add".to_string()));
+
+        for method in ["resources/list", "resources/templates/list", "prompts/list"] {
+            let merged = fanout
+                .execute_message(discovery_like(method), HeaderMap::new())
+                .await
+                .unwrap_or_else(|_| panic!("{method} merges as empty"));
+            let key = match method {
+                "resources/list" => "resources",
+                "resources/templates/list" => "resourceTemplates",
+                _ => "prompts",
+            };
+            assert!(list_names(merged, key).is_empty());
+        }
+
+        let called = fanout
+            .execute_message(
+                call_like("add", serde_json::Map::new()),
+                HeaderMap::new(),
+            )
+            .await
+            .expect("routed call");
+        assert!(response_text(called).contains("calc says 12"));
+
+        for handle in handles {
+            handle.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn dead_upstream_still_fails_initialization() {
+        // tools/list stays strict: an unreachable server fails closed.
+        let proxy = ProxyClient::new(ProxyConfig::default()).expect("proxy client");
+        let target = UpstreamTarget {
+            endpoint: UpstreamEndpoint::parse("http://127.0.0.1:1/mcp", true)
+                .expect("test endpoint"),
+            timeout: Duration::from_secs(2),
+        };
+        let fanout = MultiUpstreamProxy::new(proxy, vec![target]).expect("fan-out proxy");
+        assert!(fanout.initialize().await.is_err());
     }
 
     /// Builds a gateway-shaped request without transport headers.

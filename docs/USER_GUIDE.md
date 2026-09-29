@@ -80,8 +80,11 @@ Routing semantics with more than one upstream:
   rejected with `INVALID_REQUEST`: it needs a single upstream.
 - Duplicate capability names resolve to the first upstream in config order.
 - Paginated catalogs (`nextCursor`) cannot merge and are rejected.
-- Startup discovery is fail-closed: if any upstream cannot be listed, the
-  gateway refuses to start rather than serving a partial mesh.
+- Startup discovery is fail-closed on `tools/list`: if any upstream cannot
+  be listed, the gateway refuses to start rather than serving a partial mesh.
+  The other families are optional per upstream — servers that do not implement
+  them (bridges answer HTTP 404 with "method not found") simply contribute
+  nothing to those merges.
 
 ### Validate and inspect
 

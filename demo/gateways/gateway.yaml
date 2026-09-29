@@ -4,19 +4,13 @@ gateway:
   upstreams:
     - url: http://127.0.0.1:3001/mcp
       allow_insecure_http: true
-      request_timeout_ms: 30000
+      request_timeout_ms: 60000
     - url: http://127.0.0.1:3002/mcp
       allow_insecure_http: true
-      request_timeout_ms: 30000
+      request_timeout_ms: 60000
     - url: http://127.0.0.1:3003/mcp
       allow_insecure_http: true
-      request_timeout_ms: 30000
-    - url: http://127.0.0.1:3004/mcp
-      allow_insecure_http: true
-      request_timeout_ms: 30000
-    - url: http://127.0.0.1:3005/mcp
-      allow_insecure_http: true
-      request_timeout_ms: 30000
+      request_timeout_ms: 60000
 telemetry:
   json: false
   filter: agentmesh=info,tower_http=info
