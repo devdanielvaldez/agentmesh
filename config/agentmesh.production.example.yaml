@@ -1,0 +1,15 @@
+# Production-oriented gateway example. Review docs/OPERATIONS.md before deployment.
+gateway:
+  # Bind behind a trusted TLS load balancer or service proxy.
+  host: 0.0.0.0
+  port: 8080
+  upstream:
+    # Replace with an allowlisted HTTPS MCP endpoint.
+    url: https://mcp.internal.example/mcp
+    allow_insecure_http: false
+    request_timeout_ms: 15000
+
+telemetry:
+  # Structured output is easier to ingest and redact consistently.
+  json: true
+  filter: agentmesh=info,tower_http=warn

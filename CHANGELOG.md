@@ -8,6 +8,9 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ### Added
 
+- Comprehensive English user documentation with Mermaid architecture/request/deployment diagrams,
+  gateway and control-plane walkthroughs, CLI/API examples, operations guidance, example desired
+  state, production-oriented configuration, release checksums, and improved maintainer workflows.
 - Completed the platform module map with tenant-scoped storage contracts, in-memory and SQLite
   backends, optimistic concurrency, bounded documents, stable pagination, and isolation tests.
 - Desired-state control plane with deterministic reconciliation, immutable SHA-256 runtime
