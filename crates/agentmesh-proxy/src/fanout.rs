@@ -235,11 +235,39 @@ impl MultiUpstreamProxy {
     ) -> Result<ProxyResponse, AgentMeshError> {
         let request =
             ProxyRequest::new(self.targets[0].endpoint.clone(), message).with_headers(headers);
-        self.execute_inner(request).await
+        self.execute_inner(request, None).await
+    }
+
+    /// Executes one validated `tools/call` message on a pinned target,
+    /// bypassing discovery-based routing (used for policy `route` pins).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::RouteNotFound`] for an unknown target and
+    /// otherwise mirrors [`MultiUpstreamProxy::execute_message`].
+    pub async fn execute_message_pinned(
+        &self,
+        message: JsonRpcMessage,
+        headers: HeaderMap,
+        target: usize,
+    ) -> Result<ProxyResponse, AgentMeshError> {
+        if target >= self.targets.len() {
+            return Err(AgentMeshError::new(
+                ErrorCode::RouteNotFound,
+                "The pinned policy route names an unknown upstream.",
+            ));
+        }
+        let request =
+            ProxyRequest::new(self.targets[target].endpoint.clone(), message).with_headers(headers);
+        self.execute_inner(request, Some(target)).await
     }
 
     /// Executes one validated gateway message across the fan-out targets.
-    async fn execute_inner(&self, request: ProxyRequest) -> Result<ProxyResponse, AgentMeshError> {
+    async fn execute_inner(
+        &self,
+        request: ProxyRequest,
+        pinned: Option<usize>,
+    ) -> Result<ProxyResponse, AgentMeshError> {
         let ProxyRequest {
             message,
             headers,
@@ -248,7 +276,8 @@ impl MultiUpstreamProxy {
         } = request;
         match message {
             JsonRpcMessage::Request(request) => {
-                self.dispatch_request(request, headers, credential).await
+                self.dispatch_request(request, headers, credential, pinned)
+                    .await
             }
             JsonRpcMessage::Notification(notification) => {
                 let message = JsonRpcMessage::Notification(notification);
@@ -262,11 +291,14 @@ impl MultiUpstreamProxy {
     }
 
     /// Dispatches one validated MCP request across the fan-out targets.
+    /// A pinned target bypasses discovery for `tools/call`; other methods
+    /// ignore the pin and route normally.
     async fn dispatch_request(
         &self,
         request: JsonRpcRequest,
         headers: HeaderMap,
         credential: Option<UpstreamCredential>,
+        pinned: Option<usize>,
     ) -> Result<ProxyResponse, AgentMeshError> {
         let params = request.params.clone();
         let message = JsonRpcMessage::Request(request);
@@ -278,6 +310,7 @@ impl MultiUpstreamProxy {
                     credential,
                     "tool",
                     param_name(params.as_ref(), "name"),
+                    pinned,
                 )
                 .await
             }
@@ -288,6 +321,7 @@ impl MultiUpstreamProxy {
                     credential,
                     "prompt",
                     param_name(params.as_ref(), "name"),
+                    None,
                 )
                 .await
             }
@@ -300,6 +334,7 @@ impl MultiUpstreamProxy {
                     credential,
                     "resource",
                     param_name(params.as_ref(), "uri"),
+                    None,
                 )
                 .await
             }
@@ -322,7 +357,8 @@ impl MultiUpstreamProxy {
         }
     }
 
-    /// Routes a keyed call to the discovered owner.
+    /// Routes a keyed call to the discovered owner, or to the pinned target
+    /// when a policy `route` selected one explicitly.
     async fn route_call(
         &self,
         message: JsonRpcMessage,
@@ -330,6 +366,7 @@ impl MultiUpstreamProxy {
         credential: Option<UpstreamCredential>,
         kind: &str,
         key: Option<&str>,
+        pinned: Option<usize>,
     ) -> Result<ProxyResponse, AgentMeshError> {
         let name = key.ok_or_else(|| {
             AgentMeshError::new(
@@ -337,7 +374,9 @@ impl MultiUpstreamProxy {
                 format!("The {kind} call is missing its routing key."),
             )
         })?;
-        let index = {
+        let index = if let Some(target) = pinned {
+            target
+        } else {
             let tables = self.tables.read().map_err(|_| {
                 AgentMeshError::new(
                     ErrorCode::ConfigurationUnavailable,
@@ -530,7 +569,7 @@ fn tag_route(response: ProxyResponse, label: &str) -> Result<ProxyResponse, Agen
 
 impl McpProxy for MultiUpstreamProxy {
     fn execute(&self, request: ProxyRequest) -> ProxyFuture<'_> {
-        Box::pin(async move { self.execute_inner(request).await })
+        Box::pin(async move { self.execute_inner(request, None).await })
     }
 }
 
@@ -839,6 +878,48 @@ mod tests {
             .await
             .expect("routed call");
         assert!(response_text(called).contains("notes say hi"));
+
+        for handle in handles {
+            handle.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn pinned_route_bypasses_discovery_owner() {
+        let (fanout, handles) = fanout(vec![
+            (vec![("shared", "from zero")], true),
+            (vec![("shared", "from one")], true),
+        ])
+        .await;
+
+        let called = fanout
+            .execute_message(
+                call_like("shared", serde_json::Map::new()),
+                HeaderMap::new(),
+            )
+            .await
+            .expect("routed call");
+        assert!(response_text(called).contains("from one"));
+
+        let called = fanout
+            .execute_message_pinned(
+                call_like("shared", serde_json::Map::new()),
+                HeaderMap::new(),
+                0,
+            )
+            .await
+            .expect("pinned call");
+        assert!(response_text(called).contains("from zero"));
+
+        let error = fanout
+            .execute_message_pinned(
+                call_like("shared", serde_json::Map::new()),
+                HeaderMap::new(),
+                9,
+            )
+            .await
+            .expect_err("unknown pinned target fails");
+        assert_eq!(error.code(), ErrorCode::RouteNotFound);
 
         for handle in handles {
             handle.abort();

@@ -39,6 +39,7 @@ SDK or tying infrastructure to one model provider.
 | --- | --- |
 | Unified access | One MCP endpoint for approved tools, resources, prompts, and tasks. |
 | Deterministic routing | Tenant-, identity-, capability-, version-, label-, and region-aware decisions. |
+| Policy-driven traffic | First-match-wins rules that deny, pin, budget, and redact MCP calls. |
 | Resilient traffic | Health filtering, load balancing, deadlines, safe retries, bulkheads, and circuit breakers. |
 | Security and governance | Authentication, RBAC, contextual policy, approvals, rate limits, SSRF controls, and credential isolation. |
 | Control plane | Versioned desired state, optimistic concurrency, integrity-protected snapshots, and rollout status. |
@@ -299,6 +300,9 @@ Configuration is strict: unknown YAML keys fail startup instead of being ignored
 | `gateway.upstream.url` | none | Static Streamable HTTP MCP endpoint. |
 | `gateway.upstream.allow_insecure_http` | `false` | Permit HTTP; use only for trusted local development. |
 | `gateway.upstream.request_timeout_ms` | `30000` | Per-request upstream deadline. |
+| `gateway.upstreams[].name` | `upstream-{index}` | Logical upstream name targeted by policy `route` rules. |
+| `gateway.environment` | `development` | Deployment environment matched by policy rules. |
+| `gateway.policies` | `[]` | Policy routing rules, evaluated in order; first match wins. |
 | `telemetry.json` | `false` | Emit newline-delimited JSON logs. |
 | `telemetry.filter` | `agentmesh=info,tower_http=info` | Default tracing filter. |
 
@@ -316,6 +320,52 @@ cargo run -p agentmesh -- schema > agentmesh.schema.json
 cargo run -p agentmesh -- diff current.yaml candidate.yaml
 ```
 
+## Policy routing
+
+`gateway.policies` manages MCP traffic with first-match-wins rules. Each rule selects requests with
+`match` (a `tool` glob, a `method`, an `environment`) and applies any combination of effects:
+
+```yaml
+gateway:
+  environment: development
+  upstreams:
+    - url: http://127.0.0.1:3001/mcp
+      name: github-prod
+      allow_insecure_http: true
+    - url: http://127.0.0.1:3002/mcp
+      name: github-free
+      allow_insecure_http: true
+  policies:
+    - match: { tool: "github.get_*" }
+      route: github-free
+    - match: { tool: "stripe.refund", environment: development }
+      deny: Refunds are disabled in development.
+    - match: { tool: "maps.*" }
+      budget: { calls_per_hour: 100 }
+    - match: { tool: "crm.*" }
+      redact: ["customer.ssn"]
+```
+
+| Effect | Behavior |
+| --- | --- |
+| `deny` | Rejects with `403 POLICY_DENIED` and the configured reason. |
+| `route` | Pins matching `tools/call` requests to the named upstream, bypassing discovery. |
+| `budget` | Enforces a rolling hourly window per rule; exhaustion rejects with `429 QUOTA_EXCEEDED`. |
+| `redact` | Replaces dotted `arguments` paths with `[REDACTED]` before forwarding. |
+
+Rules without `method` apply to `tools/call` when `tool` is set and to every method otherwise.
+Unknown `route` names fail startup instead of serving a partial mesh. Every decision is recorded in
+`GET /metrics` and shown by `agentmesh monitor` as a trailing `policy` label. Dry-run any call
+without side effects (exit code 2 when it would be denied):
+
+```bash
+agentmesh policy --config config/agentmesh.local.yaml --tool github.get_issue
+```
+
+This is traffic management (which upstream serves a call, at what rate, with what fields). Identity
+RBAC and human approvals live in the `agentmesh-policy` crate. Full semantics and examples are in
+the [User Guide](docs/USER_GUIDE.md).
+
 ## CLI reference
 
 | Command | Purpose |
@@ -331,6 +381,7 @@ cargo run -p agentmesh -- diff current.yaml candidate.yaml
 | `snapshot` | Retrieve the active snapshot for one tenant and namespace. |
 | `metrics` | Print a one-shot JSON metrics snapshot from a running gateway. |
 | `monitor` | Watch a running gateway live until interrupted. |
+| `policy` | Dry-run gateway policies for one tool call without executing it. |
 
 Use `agentmesh <command> --help` for all flags. Complete command and API examples live in the
 [User Guide](docs/USER_GUIDE.md).

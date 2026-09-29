@@ -97,6 +97,18 @@ enum Command {
         #[arg(short, long, default_value = "config/agentmesh.yaml")]
         config: PathBuf,
     },
+    /// Evaluates gateway policies for one call without executing it.
+    Policy {
+        /// YAML configuration file.
+        #[arg(short, long, default_value = "config/agentmesh.yaml")]
+        config: PathBuf,
+        /// Tool name to evaluate (for example `github.get_issue`).
+        #[arg(long)]
+        tool: String,
+        /// MCP method label carrying the tool (default `tools/call`).
+        #[arg(long, default_value = "tools/call")]
+        method: String,
+    },
     /// Applies one desired-state resource through the control API.
     Apply {
         /// Control API base URL.
@@ -177,6 +189,11 @@ async fn main() -> Result<()> {
         }
         Command::Diff { current, candidate } => diff(&current, &candidate),
         Command::Doctor { config } => doctor(&config),
+        Command::Policy {
+            config,
+            tool,
+            method,
+        } => policy_check(&config, &tool, &method),
         Command::Apply {
             control_url,
             tenant,
@@ -300,7 +317,7 @@ fn render_dashboard(gateway: &str, metrics: &serde_json::Value, interval_ms: u64
         for event in recent.iter().rev().take(12) {
             let _ = writeln!(
                 out,
-                "  {:>4}s {:<22} {:<28} -> {:<8} {} {}ms",
+                "  {:>4}s {:<22} {:<28} -> {:<8} {} {}ms {}",
                 event
                     .get("age_secs")
                     .and_then(serde_json::Value::as_u64)
@@ -325,6 +342,10 @@ fn render_dashboard(gateway: &str, metrics: &serde_json::Value, interval_ms: u64
                     .get("latency_ms")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or(0),
+                event
+                    .get("policy")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("-"),
             );
         }
     }
@@ -408,7 +429,75 @@ fn doctor(path: &PathBuf) -> Result<()> {
         "ok upstreams configured: {}",
         config.gateway.effective_upstreams().len()
     );
+    if config.gateway.policies.is_empty() {
+        println!("ok policies: none configured");
+    } else {
+        let engine = agentmesh_gateway::PolicyEngine::new(&config.gateway)
+            .with_context(|| format!("invalid gateway policies in {}", path.display()))?;
+        println!(
+            "ok policies: {} rule(s), environment {}",
+            config.gateway.policies.len(),
+            engine.environment()
+        );
+    }
     Ok(())
+}
+
+/// Dry-runs the policy engine for one tool call: prints the decision without
+/// charging budgets or touching any upstream. Exits 2 when denied.
+fn policy_check(path: &PathBuf, tool: &str, method: &str) -> Result<()> {
+    let config =
+        Config::from_path(path).with_context(|| format!("failed to load {}", path.display()))?;
+    if config.gateway.policies.is_empty() {
+        println!("Decision: ALLOW (no policies configured)");
+        return Ok(());
+    }
+    let engine = agentmesh_gateway::PolicyEngine::new(&config.gateway)
+        .with_context(|| format!("invalid gateway policies in {}", path.display()))?;
+    let tool_name = if method == "tools/call" {
+        Some(tool)
+    } else {
+        None
+    };
+    let evaluation = engine.evaluate(method, tool_name);
+    match &evaluation.decision {
+        agentmesh_gateway::PolicyDecision::Allow {
+            rule,
+            route,
+            redact,
+        } => {
+            println!("Decision: ALLOW");
+            match rule {
+                Some(index) => println!("Matched rule: #{index}"),
+                None => println!("Matched rule: none (default allow)"),
+            }
+            if let Some(target) = route.and_then(|index| engine.upstream_name(index)) {
+                println!("Route: {target}");
+            }
+            if let Some(slot) = evaluation.budget_slot {
+                if let Some((limit, remaining)) = engine.budget_remaining(slot) {
+                    println!("Budget: {remaining}/{limit} calls remaining in the rolling hour");
+                }
+            }
+            if !redact.is_empty() {
+                println!("Redactions: {}", redact.join(", "));
+            }
+            Ok(())
+        }
+        agentmesh_gateway::PolicyDecision::Deny {
+            rule,
+            reason,
+            quota,
+        } => {
+            println!("Decision: DENY");
+            println!("Matched rule: #{rule}");
+            println!("Reason: {reason}");
+            if *quota {
+                println!("Hint: the hourly budget is exhausted; retry later or raise it.");
+            }
+            std::process::exit(2);
+        }
+    }
 }
 
 async fn apply_resource(
@@ -482,6 +571,18 @@ async fn serve(path: PathBuf) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind gateway to {address}"))?;
 
+    let policy = if config.gateway.policies.is_empty() {
+        None
+    } else {
+        let engine = agentmesh_gateway::PolicyEngine::new(&config.gateway)
+            .with_context(|| format!("invalid gateway policies in {}", path.display()))?;
+        info!(
+            rules = config.gateway.policies.len(),
+            environment = %engine.environment(),
+            "Policy routing engine initialized"
+        );
+        Some(Arc::new(engine))
+    };
     let upstreams = config.gateway.effective_upstreams();
     let app = match upstreams.len() {
         0 => agentmesh_gateway::router(),
@@ -494,7 +595,14 @@ async fn serve(path: PathBuf) -> Result<()> {
                 ..ProxyConfig::default()
             })
             .context("failed to initialize MCP proxy")?;
-            agentmesh_gateway::router_with_upstream(proxy, endpoint)
+            match &policy {
+                Some(engine) => agentmesh_gateway::router_with_upstream_and_policy(
+                    proxy,
+                    endpoint,
+                    Arc::clone(engine),
+                ),
+                None => agentmesh_gateway::router_with_upstream(proxy, endpoint),
+            }
         }
         count => {
             let proxy = ProxyClient::new(ProxyConfig::default())
@@ -515,7 +623,13 @@ async fn serve(path: PathBuf) -> Result<()> {
                 .await
                 .context("failed to discover multi-upstream capabilities")?;
             info!(count, "Multi-upstream fan-out initialized");
-            agentmesh_gateway::router_with_upstreams(Arc::new(fanout))
+            match &policy {
+                Some(engine) => agentmesh_gateway::router_with_upstreams_and_policy(
+                    Arc::new(fanout),
+                    Arc::clone(engine),
+                ),
+                None => agentmesh_gateway::router_with_upstreams(Arc::new(fanout)),
+            }
         }
     };
 

@@ -42,6 +42,9 @@ struct RecentEvent {
     upstream: String,
     status: u16,
     latency_ms: u64,
+    /// Policy decision label (`allow`, `deny:rule0`, …), when policies apply.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -77,6 +80,20 @@ impl SharedStats {
         status: u16,
         latency_ms: u64,
     ) {
+        self.record_with_policy(method, detail, upstream, status, latency_ms, None);
+    }
+
+    /// Records one served request with its policy decision label.
+    /// Lock poison degrades to a dropped sample.
+    pub fn record_with_policy(
+        &self,
+        method: &str,
+        detail: Option<String>,
+        upstream: &str,
+        status: u16,
+        latency_ms: u64,
+        policy: Option<String>,
+    ) {
         let Ok(mut data) = self.inner.lock() else {
             return;
         };
@@ -101,6 +118,7 @@ impl SharedStats {
             upstream: upstream.to_string(),
             status,
             latency_ms,
+            policy,
         });
     }
 

@@ -168,6 +168,7 @@ dependencies = [
 name = "agentmesh-gateway"
 version = "0.1.0"
 dependencies = [
+ "agentmesh-config",
  "agentmesh-error",
  "agentmesh-protocol",
  "agentmesh-proxy",
@@ -176,6 +177,7 @@ dependencies = [
  "http",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
  "tower",
  "tower-http 0.7.1",
