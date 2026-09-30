@@ -126,6 +126,23 @@ curl -fsSL https://raw.githubusercontent.com/devdanielvaldez/agentmesh/main/inst
 Windows (PowerShell): `irm .../install.ps1 | iex`. All options, manual
 downloads, and checksums: [INSTALL.md](INSTALL.md).
 
+### Staying updated
+
+Every command checks the latest GitHub release at most once a day (a cache read on most runs,
+one ≤2s query when stale, silent without network; opt out with `AGENTMESH_NO_UPDATE_CHECK=1`)
+and prints `Update available: x -> y` when you are behind:
+
+```bash
+agentmesh upgrade --check   # report only
+agentmesh upgrade           # confirm, download, verify, install
+agentmesh upgrade --yes     # non-interactive (CI)
+```
+
+`upgrade` downloads the prebuilt binary for your platform, verifies its `.sha256` checksum,
+sanity-checks it with `--version`, and replaces the running binary in place
+(`--to DIR` installs elsewhere instead). Platforms without a prebuilt binary fall back to
+`install.sh` or `cargo`.
+
 ### 1. Clone and build (from source)
 
 ```bash
@@ -382,6 +399,7 @@ the [User Guide](docs/USER_GUIDE.md).
 | `metrics` | Print a one-shot JSON metrics snapshot from a running gateway. |
 | `monitor` | Watch a running gateway live until interrupted. |
 | `policy` | Dry-run gateway policies for one tool call without executing it. |
+| `upgrade` | Check for a newer release and optionally install it. |
 
 Use `agentmesh <command> --help` for all flags. Complete command and API examples live in the
 [User Guide](docs/USER_GUIDE.md).

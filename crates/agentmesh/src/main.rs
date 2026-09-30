@@ -18,6 +18,8 @@ use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+mod upgrade;
+
 #[derive(Debug, Parser)]
 #[command(name = "agentmesh", version, about = "The service mesh for AI tools")]
 struct Cli {
@@ -97,6 +99,18 @@ enum Command {
         #[arg(short, long, default_value = "config/agentmesh.yaml")]
         config: PathBuf,
     },
+    /// Checks for a newer release and optionally installs it.
+    Upgrade {
+        /// Only report the latest release; do not download or install.
+        #[arg(long)]
+        check: bool,
+        /// Install without asking for confirmation.
+        #[arg(long)]
+        yes: bool,
+        /// Install into DIR instead of replacing the running binary.
+        #[arg(long, value_name = "DIR")]
+        to: Option<PathBuf>,
+    },
     /// Evaluates gateway policies for one call without executing it.
     Policy {
         /// YAML configuration file.
@@ -165,6 +179,17 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Passive update notice: a cache read on most runs, one <=2s network
+    // query per day when stale, silent and throttled without network. No
+    // check runs for `upgrade` itself; opt out with AGENTMESH_NO_UPDATE_CHECK.
+    if std::env::var("AGENTMESH_NO_UPDATE_CHECK").is_err()
+        && !matches!(cli.command, Command::Upgrade { .. })
+    {
+        if let Some(notice) = upgrade::refresh_notice().await {
+            eprintln!("{notice}");
+        }
+    }
+
     match cli.command {
         Command::Serve { config } => serve(config).await,
         Command::ControlPlane {
@@ -189,6 +214,7 @@ async fn main() -> Result<()> {
         }
         Command::Diff { current, candidate } => diff(&current, &candidate),
         Command::Doctor { config } => doctor(&config),
+        Command::Upgrade { check, yes, to } => upgrade::run_upgrade(check, yes, to).await,
         Command::Policy {
             config,
             tool,
