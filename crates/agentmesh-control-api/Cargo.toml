@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-control-plane = { path = "../agentmesh-control-plane", version = "0.2.0" }
-agentmesh-error = { path = "../agentmesh-error", version = "0.2.0" }
-agentmesh-storage = { path = "../agentmesh-storage", version = "0.2.0" }
+agentmesh-control-plane = { path = "../agentmesh-control-plane", version = "0.3.0" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.0" }
+agentmesh-storage = { path = "../agentmesh-storage", version = "0.3.0" }
 axum.workspace = true
 http.workspace = true
 serde.workspace = true
