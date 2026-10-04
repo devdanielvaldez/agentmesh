@@ -78,8 +78,9 @@ observed_apis:
 
 - `version` must be `"1.0"`.
 - `id` is dot-separated lowercase segments (`app.capability`); it doubles as
-  the store file name (`<id>.yaml` under `~/.agentmesh/workflows/`, or
-  `$AGENTMESH_HOME/workflows/`).
+  the store file name (`<id>.yaml` under the platform AgentMesh data directory's
+  `workflows/` folder, or `$AGENTMESH_HOME/workflows/`). See
+  [Data Directories](DATA_DIRECTORIES.md).
 - `runtime` is one of `browser`, `desktop`, `mobile`, `api` (preferred
   runtime; the router may fall back).
 - `inputs` map names to `{ type, required, default }`. Types: `string`,
@@ -106,6 +107,13 @@ observed_apis:
   `control.loop` needs an `iterations` template (1–100): the next step repeats
   that many times. `control.retry` / `control.timeout` stay declarative
   markers owned by the recovery policy.
+- `ui.scroll` targets the scrollable region itself, not page coordinates.
+  `value` is `up`, `down`, `left`, or `right`; `iterations` is a bounded count
+  from 1–100 or `until_stable`. The latter advances by viewport-sized pages
+  until the region stops moving/loading, capped at 50 attempts. During Teach
+  recording, ordinary wheel/trackpad gestures are captured and consecutive
+  gestures in the same region collapse; hold Alt while scrolling to mark an
+  infinite-scroll pagination region as `until_stable`.
 - `ui.drag` / `ui.drop` take an optional `destination` target, or an `"x,y"`
   pixel offset in `value`. `file.*` steps need a `path` (or `value`) template:
   `file.choose`/`file.upload` attach a file, `file.download` clicks then saves

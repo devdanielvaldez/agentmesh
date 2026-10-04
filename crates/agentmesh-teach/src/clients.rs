@@ -127,7 +127,7 @@ pub fn export_server_name(server_mjs: &Path) -> String {
 
 /// Resolves a `--profile` value to a session profile directory: either a
 /// directory path as given, or an application name stored under
-/// `<home>/profiles/`. Returns [`None`] when neither exists so callers fail
+/// `<home>/sessions/`. Returns [`None`] when neither exists so callers fail
 /// closed instead of writing a config that runs without its login.
 #[must_use]
 pub fn resolve_client_profile(app_or_path: &str, home: &Path) -> Option<PathBuf> {
@@ -135,7 +135,7 @@ pub fn resolve_client_profile(app_or_path: &str, home: &Path) -> Option<PathBuf>
     if direct.is_dir() {
         return direct.canonicalize().ok();
     }
-    let stored = home.join("profiles").join(app_or_path);
+    let stored = home.join("sessions").join(app_or_path);
     if stored.is_dir() {
         return stored.canonicalize().ok();
     }
@@ -176,14 +176,14 @@ mod tests {
         let document = client_config_json(
             "demo-mcp",
             Path::new("/opt/demo/server.mjs"),
-            Some(Path::new("/home/user/.agentmesh/profiles/demo")),
+            Some(Path::new("/home/user/.local/share/agentmesh/sessions/demo")),
         );
         let tool = &document["mcpServers"]["demo-mcp"];
         assert_eq!(tool["command"], serde_json::json!("node"));
         assert_eq!(tool["args"], serde_json::json!(["/opt/demo/server.mjs"]));
         assert_eq!(
             tool["env"]["AGENTMESH_TEACH_PROFILE"],
-            serde_json::json!("/home/user/.agentmesh/profiles/demo")
+            serde_json::json!("/home/user/.local/share/agentmesh/sessions/demo")
         );
     }
 
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn profile_resolves_path_app_and_missing() {
         let home = tempfile::tempdir().expect("scratch home");
-        let profile = home.path().join("profiles").join("demo");
+        let profile = home.path().join("sessions").join("demo");
         std::fs::create_dir_all(&profile).expect("scratch profile");
         assert_eq!(
             resolve_client_profile(profile.to_str().expect("utf8 path"), home.path()),
@@ -227,7 +227,7 @@ mod tests {
         assert_eq!(
             resolve_client_profile("demo", home.path()),
             profile.canonicalize().ok(),
-            "app name resolves under profiles/"
+            "app name resolves under sessions/"
         );
         assert_eq!(
             resolve_client_profile("missing", home.path()),

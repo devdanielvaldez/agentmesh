@@ -198,9 +198,9 @@ pub struct Step {
     /// to a falsy value the runtime skips the immediately following step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,
-    /// Templated iteration count for `control.loop`.
-    /// The runtime repeats the immediately following step this many times
-    /// (bounded to 1–100 after substitution).
+    /// Templated iteration count for `control.loop`, or a bounded page count
+    /// for `ui.scroll`. Scroll also accepts `until_stable`, which stops when
+    /// the recorded region no longer moves or loads additional content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iterations: Option<String>,
     /// Drop destination for `ui.drag` / `ui.drop`.
@@ -653,6 +653,34 @@ fn validate_step(
             step.id
         ));
     }
+    if step.op == "ui.scroll" {
+        if step
+            .value
+            .as_deref()
+            .is_some_and(|value| !matches!(value, "up" | "down" | "left" | "right"))
+        {
+            return Err(format!(
+                "step {:?} (ui.scroll) direction must be up, down, left, or right",
+                step.id
+            ));
+        }
+        if let Some(iterations) = step
+            .iterations
+            .as_deref()
+            .filter(|value| !value.contains("{{"))
+        {
+            let valid = iterations == "until_stable"
+                || iterations
+                    .parse::<u32>()
+                    .is_ok_and(|count| (1..=100).contains(&count));
+            if !valid {
+                return Err(format!(
+                    "step {:?} (ui.scroll) iterations must be 1-100 or until_stable",
+                    step.id
+                ));
+            }
+        }
+    }
     if step.op.starts_with("file.")
         && step.path.as_deref().is_none_or(str::is_empty)
         && step.value.as_deref().is_none_or(str::is_empty)
@@ -1102,5 +1130,21 @@ policy:
         assert!(message.contains("iterations"), "{message}");
         let message = case("steps:\n  - id: save\n    op: file.save\n");
         assert!(message.contains("path or value"), "{message}");
+    }
+
+    #[test]
+    fn scroll_pagination_contract_is_bounded() {
+        parse_workflow(
+            "version: \"1.0\"\nid: app.feed\nruntime: browser\nsteps:\n  - id: paginate\n    op: ui.scroll\n    target: { role: feed, accessible_name: Messages }\n    value: down\n    iterations: until_stable\n",
+        )
+        .expect("bounded infinite-scroll pagination is valid");
+        let message = case(
+            "steps:\n  - id: paginate\n    op: ui.scroll\n    target: { role: feed }\n    value: diagonal\n    iterations: '101'\n",
+        );
+        assert!(message.contains("direction"), "{message}");
+        let message = case(
+            "steps:\n  - id: paginate\n    op: ui.scroll\n    target: { role: feed }\n    value: down\n    iterations: '101'\n",
+        );
+        assert!(message.contains("1-100"), "{message}");
     }
 }
