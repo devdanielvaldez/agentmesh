@@ -1,6 +1,7 @@
 //! `AgentMesh` command-line interface and process entry point.
 
 use std::{
+    io::{IsTerminal, Write},
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     sync::Arc,
@@ -18,6 +19,7 @@ use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+mod teach_flow;
 mod upgrade;
 
 #[derive(Debug, Parser)]
@@ -111,6 +113,62 @@ enum Command {
         #[arg(long, value_name = "DIR")]
         to: Option<PathBuf>,
     },
+    /// Authors a workflow: guided manual authoring, or browser recording.
+    Teach {
+        /// Workflow id (for example `whatsapp.read_messages`).
+        #[arg(long)]
+        name: Option<String>,
+        /// Authoring mode: `manual` (guided prompts) or `browser` (recorded).
+        #[arg(long, default_value = "manual")]
+        target: String,
+        /// Recording scope origin for browser mode.
+        #[arg(long)]
+        scope: Option<String>,
+        /// URL opened for a browser demonstration.
+        #[arg(long)]
+        start_url: Option<String>,
+        /// Show the recording browser window.
+        #[arg(long)]
+        headed: bool,
+        /// Record or run with a stored session profile.
+        #[arg(long)]
+        session: Option<String>,
+        /// Learn a second demonstration into an existing workflow.
+        #[arg(long = "continue")]
+        continue_from: Option<String>,
+        /// Expose the recording browser on a CDP port (advanced automation).
+        #[arg(long)]
+        cdp_port: Option<u16>,
+        /// Keep every recorded event as its own literal step (no dedupe, no candidates).
+        #[arg(long)]
+        raw: bool,
+    },
+    /// Manages stored workflows.
+    Workflows {
+        #[command(subcommand)]
+        action: WorkflowsAction,
+    },
+    /// Manages persistent application sessions.
+    Sessions {
+        #[command(subcommand)]
+        action: SessionsAction,
+    },
+    /// Inspects secret references used by stored workflows.
+    Secret {
+        #[command(subcommand)]
+        action: SecretAction,
+    },
+    /// Re-executes a recorded run with its original inputs.
+    Replay {
+        /// Executor run id from a previous run.
+        run_id: String,
+        /// Skip write confirmations.
+        #[arg(long)]
+        yes: bool,
+        /// Override stored inputs as key=value pairs (repeatable).
+        #[arg(long = "input", value_name = "KEY=VALUE")]
+        input: Vec<String>,
+    },
     /// Evaluates gateway policies for one call without executing it.
     Policy {
         /// YAML configuration file.
@@ -175,6 +233,260 @@ enum Command {
     },
 }
 
+/// Stored-workflow operations.
+#[derive(Debug, Subcommand)]
+enum WorkflowsAction {
+    /// Lists stored workflows.
+    List {
+        /// Report corrupt documents instead of failing on the first one.
+        #[arg(long)]
+        lenient: bool,
+    },
+    /// Prints one stored workflow as YAML.
+    Inspect {
+        /// Workflow id.
+        id: String,
+    },
+    /// Validates a workflow file or a stored workflow id.
+    Validate {
+        /// File path or stored workflow id.
+        target: String,
+    },
+    /// Deletes a stored workflow (keeps a revision snapshot).
+    Delete {
+        /// Workflow id.
+        id: String,
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Renames a stored workflow, rewriting its id.
+    Rename {
+        /// Current workflow id.
+        from: String,
+        /// New workflow id (`namespace.name`).
+        to: String,
+    },
+    /// Prints a step-level diff between two stored workflows.
+    Diff {
+        /// First workflow id.
+        a: String,
+        /// Second workflow id.
+        b: String,
+    },
+    /// Imports a workflow YAML file into the store.
+    Import {
+        /// Workflow file to import.
+        file: PathBuf,
+        /// Overwrite the stored workflow when the id already exists.
+        #[arg(long)]
+        overwrite: bool,
+    },
+    /// Applies repair candidates proposed by self-healing runs.
+    ApplyRepair {
+        /// Workflow id.
+        id: String,
+        /// Only this step id (default: every candidate for the workflow).
+        #[arg(long)]
+        step: Option<String>,
+        /// Skip per-repair confirmation.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Generalizes brittle recorded assertions (volatile URLs, duplicates).
+    Relax {
+        /// Workflow id.
+        id: String,
+    },
+    /// Removes old run directories and stale repair candidates.
+    Prune {
+        /// Remove runs older than this many days.
+        #[arg(long, default_value_t = 30)]
+        older_than_days: u64,
+        /// Always keep this many of the newest run directories.
+        #[arg(long, default_value_t = 10)]
+        keep_last: usize,
+        /// List what would be removed without removing it.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Runs a JSON cases file against a workflow and checks expected outputs.
+    Eval {
+        /// Workflow id.
+        id: String,
+        /// JSON cases file ([{inputs, expect}]).
+        #[arg(long)]
+        cases: PathBuf,
+        /// Skip write confirmations.
+        #[arg(long)]
+        yes: bool,
+        /// Show the runtime browser window while executing.
+        #[arg(long)]
+        headed: bool,
+    },
+    /// Shows per-step reliability from run audits (retries, heals, repairs).
+    Flaky {
+        /// Workflow id. Omit for every taught workflow.
+        id: Option<String>,
+    },
+    /// Promotes the most repeated routine into a saved sub-workflow.
+    Compose {
+        /// Namespace for the composed workflow id.
+        #[arg(long)]
+        namespace: String,
+        /// Name for the composed workflow id.
+        #[arg(long)]
+        name: String,
+        /// Minimum routine length in steps.
+        #[arg(long, default_value_t = 2)]
+        min_steps: usize,
+        /// Maximum routine length in steps.
+        #[arg(long, default_value_t = 4)]
+        max_steps: usize,
+    },
+    /// Generates a reviewed starter API adapter from observed APIs.
+    GenApiAdapter {
+        /// Workflow id.
+        id: String,
+        /// Output executable path.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Checks that a runtime adapter honors the Teach contract.
+    CheckAdapter {
+        /// Runtime the adapter serves (`desktop`, `mobile`, `api`).
+        #[arg(long)]
+        runtime: String,
+        /// Adapter executable path.
+        #[arg(long)]
+        adapter: String,
+    },
+    /// Executes a stored workflow through the Playwright runtime.
+    Run {
+        /// Workflow id.
+        id: String,
+        /// Inputs as key=value pairs (repeatable).
+        #[arg(long = "input", value_name = "KEY=VALUE")]
+        input: Vec<String>,
+        /// Resolve targets and stop before the first write.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip write confirmations.
+        #[arg(long)]
+        yes: bool,
+        /// Run inside a stored session profile.
+        #[arg(long)]
+        session: Option<String>,
+        /// Show the runtime browser window while executing.
+        #[arg(long)]
+        headed: bool,
+    },
+    /// Validates a workflow and dry-runs it without performing writes.
+    Test {
+        /// Workflow id.
+        id: String,
+        /// Inputs as key=value pairs (repeatable).
+        #[arg(long = "input", value_name = "KEY=VALUE")]
+        input: Vec<String>,
+    },
+    /// Exports a workflow to another format.
+    Export {
+        /// Workflow id. Omit it together with --all to export the capability library.
+        id: Option<String>,
+        /// Export every stored workflow as one MCP capability library.
+        #[arg(long, conflicts_with = "id")]
+        all: bool,
+        /// Export format (`mcp`).
+        #[arg(long)]
+        target: String,
+        /// Output directory.
+        #[arg(long)]
+        out: String,
+    },
+    /// Writes a ready-to-use MCP client config for an exported server.
+    ClientConfig {
+        /// Client flavor (`claude-code`, `claude-desktop`, `generic`).
+        #[arg(long)]
+        client: String,
+        /// Exported `server.mjs` path.
+        #[arg(long)]
+        server: String,
+        /// Session profile: application name (`linkedin`) or profile directory.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Output file.
+        #[arg(long)]
+        out: String,
+    },
+    /// Exports redacted successful/failed trajectories for evaluation or model training.
+    Dataset {
+        /// Destination JSONL file.
+        #[arg(long)]
+        out: PathBuf,
+        /// Only this workflow id.
+        #[arg(long)]
+        workflow: Option<String>,
+        /// Only this status (`succeeded` or `failed`).
+        #[arg(long)]
+        status: Option<String>,
+        /// Only records from the last N days.
+        #[arg(long)]
+        since_days: Option<u64>,
+        /// Maximum records to export (0 means no limit).
+        #[arg(long, default_value_t = 0)]
+        limit: usize,
+    },
+    /// Summarizes observed execution quality from local experience memory.
+    Report {
+        /// Workflow id. Omit to aggregate every taught workflow.
+        id: Option<String>,
+        /// Only records from the last N days.
+        #[arg(long)]
+        since_days: Option<u64>,
+        /// Only this status (`succeeded` or `failed`).
+        #[arg(long)]
+        status: Option<String>,
+    },
+}
+
+/// Application session operations.
+#[derive(Debug, Subcommand)]
+enum SessionsAction {
+    /// Opens an application once so the user can log in; the session persists.
+    Login {
+        /// Application name (`whatsapp`).
+        app: String,
+        /// Login URL.
+        #[arg(long)]
+        url: String,
+    },
+    /// Lists stored application sessions.
+    List,
+}
+
+/// Secret inventory operations.
+#[derive(Debug, Subcommand)]
+enum SecretAction {
+    /// Lists secret references used by stored workflows and their status.
+    List,
+    /// Stores a secret value in `$AGENTMESH_HOME/.env` (mode 0600).
+    Set {
+        /// Secret variable (must start with SECRET_).
+        variable: String,
+        /// Value (prefer the prompt; flags stay in shell history).
+        #[arg(long)]
+        value: Option<String>,
+    },
+    /// Replaces the stored value for a secret variable.
+    Rotate {
+        /// Secret variable (must start with SECRET_).
+        variable: String,
+        /// Value (prefer the prompt; flags stay in shell history).
+        #[arg(long)]
+        value: Option<String>,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -214,6 +526,11 @@ async fn main() -> Result<()> {
         }
         Command::Diff { current, candidate } => diff(&current, &candidate),
         Command::Doctor { config } => doctor(&config),
+        teach @ (Command::Teach { .. }
+        | Command::Workflows { .. }
+        | Command::Sessions { .. }
+        | Command::Secret { .. }
+        | Command::Replay { .. }) => dispatch_teach(teach),
         Command::Upgrade { check, yes, to } => upgrade::run_upgrade(check, yes, to).await,
         Command::Policy {
             config,
@@ -466,6 +783,593 @@ fn doctor(path: &PathBuf) -> Result<()> {
             engine.environment()
         );
     }
+    Ok(())
+}
+
+/// Runs the Teach family of subcommands: authoring, workflows, sessions,
+/// secrets, and replay. Anything else is a programming error by the caller.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_teach_mode(
+    name: Option<String>,
+    target: &str,
+    scope: Option<String>,
+    start_url: Option<String>,
+    headed: bool,
+    session: Option<String>,
+    continue_from: Option<String>,
+    cdp_port: Option<u16>,
+    raw: bool,
+) -> Result<()> {
+    match target {
+        "browser" => teach_flow::teach_browser(&teach_flow::BrowserTeachOptions {
+            name,
+            scope,
+            start_url,
+            headed,
+            session,
+            continue_from,
+            cdp_port,
+            raw,
+        }),
+        "manual" => {
+            if scope.is_some()
+                || start_url.is_some()
+                || headed
+                || session.is_some()
+                || continue_from.is_some()
+                || cdp_port.is_some()
+                || raw
+            {
+                anyhow::bail!("browser-only flags need --target browser");
+            }
+            teach_wizard(name)
+        }
+        other => anyhow::bail!("unknown teach target {other:?}; use manual or browser"),
+    }
+}
+
+/// Stored-workflow catalog operations (list through repair).
+fn dispatch_workflows_catalog(action: &WorkflowsAction) -> Option<Result<()>> {
+    match action {
+        WorkflowsAction::List { lenient } => Some(workflows_list(*lenient)),
+        WorkflowsAction::Inspect { id } => Some(workflows_inspect(id)),
+        WorkflowsAction::Validate { target } => Some(workflows_validate(target)),
+        WorkflowsAction::Delete { id, yes } => Some(teach_flow::workflows_delete(id, *yes)),
+        WorkflowsAction::Rename { from, to } => Some(teach_flow::workflows_rename(from, to)),
+        WorkflowsAction::Diff { a, b } => Some(teach_flow::workflows_diff(a, b)),
+        WorkflowsAction::Import { file, overwrite } => Some(teach_flow::workflows_import(
+            &file.to_string_lossy(),
+            *overwrite,
+        )),
+        WorkflowsAction::ApplyRepair { id, step, yes } => Some(teach_flow::workflows_apply_repair(
+            id,
+            step.as_deref(),
+            *yes,
+        )),
+        WorkflowsAction::Relax { id } => Some(teach_flow::workflows_relax(id)),
+        WorkflowsAction::ClientConfig {
+            client,
+            server,
+            profile,
+            out,
+        } => Some(teach_flow::workflows_client_config(
+            client,
+            server,
+            profile.as_deref(),
+            out,
+        )),
+        _ => None,
+    }
+}
+
+/// Stored-workflow lifecycle operations (prune through report).
+fn dispatch_workflows_lifecycle(action: &WorkflowsAction) -> Result<()> {
+    match action {
+        WorkflowsAction::Prune {
+            older_than_days,
+            keep_last,
+            dry_run,
+        } => teach_flow::workflows_prune(*older_than_days, *keep_last, *dry_run),
+        WorkflowsAction::Eval {
+            id,
+            cases,
+            yes,
+            headed,
+        } => teach_flow::workflows_eval(id, &cases.to_string_lossy(), *yes, *headed),
+        WorkflowsAction::Flaky { id } => teach_flow::workflows_flaky(id.as_deref()),
+        WorkflowsAction::Compose {
+            namespace,
+            name,
+            min_steps,
+            max_steps,
+        } => teach_flow::workflows_compose(namespace, name, *min_steps, *max_steps),
+        WorkflowsAction::GenApiAdapter { id, out } => {
+            teach_flow::workflows_gen_api_adapter(id, &out.to_string_lossy())
+        }
+        WorkflowsAction::CheckAdapter { runtime, adapter } => {
+            teach_flow::workflows_check_adapter(runtime, adapter)
+        }
+        other => dispatch_workflows_execute(other),
+    }
+}
+
+fn dispatch_teach(command: Command) -> Result<()> {
+    match command {
+        Command::Teach {
+            name,
+            target,
+            scope,
+            start_url,
+            headed,
+            session,
+            continue_from,
+            cdp_port,
+            raw,
+        } => dispatch_teach_mode(
+            name,
+            &target,
+            scope,
+            start_url,
+            headed,
+            session,
+            continue_from,
+            cdp_port,
+            raw,
+        ),
+        Command::Workflows { action } => {
+            if let Some(done) = dispatch_workflows_catalog(&action) {
+                return done;
+            }
+            dispatch_workflows_lifecycle(&action)
+        }
+        rest => dispatch_teach_rest(rest),
+    }
+}
+/// Stored-workflow execution operations (run through report).
+fn dispatch_workflows_execute(action: &WorkflowsAction) -> Result<()> {
+    match action {
+        WorkflowsAction::Run {
+            id,
+            input,
+            dry_run,
+            yes,
+            session,
+            headed,
+        } => teach_flow::workflows_run(
+            id,
+            &teach_flow::RunOptions {
+                inputs: input.clone(),
+                dry_run: *dry_run,
+                yes: *yes,
+                session: session.clone(),
+                headed: *headed,
+            },
+        ),
+        WorkflowsAction::Test { id, input } => teach_flow::workflows_test(id, input),
+        WorkflowsAction::Export {
+            id,
+            all,
+            target,
+            out,
+        } => {
+            if !all && id.is_none() {
+                anyhow::bail!("provide a workflow id or use --all");
+            }
+            teach_flow::workflows_export(id.as_deref(), *all, target, out)
+        }
+        WorkflowsAction::Dataset {
+            out,
+            workflow,
+            status,
+            since_days,
+            limit,
+        } => teach_flow::workflows_dataset(
+            out,
+            &teach_flow::ExperienceFilter {
+                workflow: workflow.clone(),
+                status: status.clone(),
+                since_days: *since_days,
+            },
+            *limit,
+        ),
+        WorkflowsAction::Report {
+            id,
+            since_days,
+            status,
+        } => teach_flow::workflows_report(&teach_flow::ExperienceFilter {
+            workflow: id.clone(),
+            status: status.clone(),
+            since_days: *since_days,
+        }),
+        other => anyhow::bail!("not a workflow execution command: {other:?}"),
+    }
+}
+
+/// Sessions, secrets, and replay operations.
+fn dispatch_teach_rest(command: Command) -> Result<()> {
+    match command {
+        Command::Sessions { action } => match action {
+            SessionsAction::Login { app, url } => teach_flow::sessions_login(&app, &url),
+            SessionsAction::List => teach_flow::sessions_list(),
+        },
+        Command::Secret { action } => match action {
+            SecretAction::List => teach_flow::secret_list(),
+            SecretAction::Set { variable, value } | SecretAction::Rotate { variable, value } => {
+                teach_flow::secret_set(&variable, value.as_deref())
+            }
+        },
+        Command::Replay { run_id, yes, input } => teach_flow::replay_run(&run_id, yes, &input),
+        _ => anyhow::bail!("not a teach command"),
+    }
+}
+
+/// Guided workflow authoring: prompts for description, inputs, steps, and
+/// outputs, validates the IR, and saves it to the local store.
+fn teach_wizard(name: Option<String>) -> Result<()> {
+    use agentmesh_teach::{InputDef, Workflow};
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("teach is interactive; run it in a terminal");
+    }
+    println!("Teach AgentMesh a reusable capability.");
+    println!("Values may reference {{{{ inputs.<name> }}}} and {{{{ steps.<id>[.result] }}}}.");
+    let id = match name {
+        Some(name) if !name.trim().is_empty() => name,
+        _ => teach_prompt("Workflow id (app.capability)")?,
+    };
+    let description = teach_prompt("Description (optional)")?;
+    let runtime = teach_prompt_default("Preferred runtime", "browser")?;
+    let mut inputs = std::collections::BTreeMap::new();
+    loop {
+        let name = teach_prompt("Input name (empty to finish)")?;
+        if name.is_empty() {
+            break;
+        }
+        let kind = teach_prompt_default("Type [string]", "string")?;
+        let input_type = parse_input_type(&kind)?;
+        let default = teach_default_value(&teach_prompt("Default (empty for none)")?, input_type)?;
+        let required = if default.is_some() {
+            Some(false)
+        } else {
+            Some(teach_yes_no("Required?", true)?)
+        };
+        inputs.insert(
+            name.clone(),
+            InputDef {
+                input_type,
+                required,
+                default,
+            },
+        );
+        println!("  added input {name}");
+    }
+    println!("Known ops: browser.* ui.* app.* file.* auth.* control.* assert.* human.*");
+    println!("(see docs/WORKFLOW_IR.md for the full list)");
+    let steps = teach_wizard_steps()?;
+    if steps.is_empty() {
+        anyhow::bail!("a workflow needs at least one step");
+    }
+    let outputs = teach_wizard_outputs()?;
+    let policy = teach_policy()?;
+    let checkpoints = steps
+        .iter()
+        .find(|step| step.op == "browser.navigate")
+        .map(|step| vec![step.id.clone()])
+        .unwrap_or_default();
+    let workflow = Workflow {
+        version: agentmesh_teach::SUPPORTED_IR_VERSION.to_string(),
+        id: id.clone(),
+        description,
+        runtime,
+        inputs,
+        steps,
+        outputs,
+        policy,
+        preconditions: Vec::new(),
+        success: Vec::new(),
+        failure: Vec::new(),
+        recovery: Some(agentmesh_teach::RecoveryPolicy {
+            max_attempts: 2,
+            checkpoints,
+            capture_aria: true,
+            capture_screenshot: true,
+            vision_adapter: None,
+        }),
+        observed_apis: Vec::new(),
+    };
+    agentmesh_teach::validate_workflow(&workflow)?;
+    let path = agentmesh_teach::save_workflow(&workflow)?;
+    println!(
+        "Saved {id} ({} steps) to {}",
+        workflow.steps.len(),
+        path.display()
+    );
+    Ok(())
+}
+
+/// Prompts for workflow steps until an empty step id ends the loop.
+fn teach_wizard_steps() -> Result<Vec<agentmesh_teach::Step>> {
+    use agentmesh_teach::Step;
+    let mut steps = Vec::new();
+    loop {
+        let id = teach_prompt("Step id (empty to finish)")?;
+        if id.is_empty() {
+            break;
+        }
+        let op = teach_prompt("Op")?;
+        if !agentmesh_teach::KNOWN_OPS.contains(&op.as_str()) {
+            anyhow::bail!("unknown op {op:?}; see docs/WORKFLOW_IR.md");
+        }
+        let target = teach_target()?;
+        let value = optional(teach_prompt("Value template (optional)")?);
+        let url = if op == "browser.navigate" {
+            Some(teach_prompt("URL")?)
+        } else {
+            None
+        };
+        let limit = if op == "ui.extract" {
+            optional(teach_prompt("Limit template (optional)")?)
+        } else {
+            None
+        };
+        steps.push(Step {
+            id: id.clone(),
+            op,
+            target,
+            value,
+            url,
+            limit,
+            timeout_ms: None,
+            condition: None,
+            iterations: None,
+            destination: None,
+            path: None,
+        });
+        println!("  added step {id}");
+    }
+    Ok(steps)
+}
+
+/// Prompts for workflow outputs until an empty output name ends the loop.
+fn teach_wizard_outputs() -> Result<std::collections::BTreeMap<String, agentmesh_teach::OutputDef>>
+{
+    use agentmesh_teach::OutputDef;
+    let mut outputs = std::collections::BTreeMap::new();
+    loop {
+        let name = teach_prompt("Output name (empty to finish)")?;
+        if name.is_empty() {
+            break;
+        }
+        let from = teach_prompt("From (steps.<id>[.result])")?;
+        outputs.insert(name.clone(), OutputDef { from });
+        println!("  added output {name}");
+    }
+    Ok(outputs)
+}
+
+/// Prompts for an optional target descriptor; returns None when all blank.
+fn teach_target() -> Result<Option<agentmesh_teach::Target>> {
+    use agentmesh_teach::Target;
+    println!("  Target (all optional; at least one for ui.* steps):");
+    let semantic = optional(teach_prompt("    semantic")?);
+    let role = optional(teach_prompt("    role")?);
+    let accessible_name = optional(teach_prompt("    accessible name")?);
+    let text = optional(teach_prompt("    visible text")?);
+    let placeholder = optional(teach_prompt("    placeholder")?);
+    let autocomplete = optional(teach_prompt("    autocomplete (optional)")?);
+    let selectors = teach_prompt("    selectors (comma-separated)")?;
+    let match_pattern = optional(teach_prompt("    match template")?);
+    if semantic.is_none()
+        && role.is_none()
+        && accessible_name.is_none()
+        && text.is_none()
+        && placeholder.is_none()
+        && autocomplete.is_none()
+        && match_pattern.is_none()
+        && selectors.trim().is_empty()
+    {
+        return Ok(None);
+    }
+    Ok(Some(Target {
+        semantic,
+        role,
+        accessible_name,
+        text,
+        placeholder,
+        autocomplete,
+        selectors: selectors
+            .split(',')
+            .map(str::trim)
+            .filter(|selector| !selector.is_empty())
+            .map(str::to_string)
+            .collect(),
+        match_pattern,
+    }))
+}
+
+/// Prompts for an optional workflow policy.
+pub(crate) fn teach_policy() -> Result<Option<agentmesh_teach::WorkflowPolicy>> {
+    if !teach_yes_no("Add a policy?", false)? {
+        return Ok(None);
+    }
+    let origins = teach_prompt("Allowed origins (comma-separated, optional)")?;
+    let max_runs = teach_prompt("Max runs per hour (optional)")?;
+    let max_runs_per_hour = if max_runs.trim().is_empty() {
+        None
+    } else {
+        Some(
+            max_runs
+                .trim()
+                .parse::<u64>()
+                .context("max runs per hour must be a positive integer")?,
+        )
+    };
+    Ok(Some(agentmesh_teach::WorkflowPolicy {
+        allowed_origins: origins
+            .split(',')
+            .map(str::trim)
+            .filter(|origin| !origin.is_empty())
+            .map(str::to_string)
+            .collect(),
+        allowed_operations: Vec::new(),
+        denied_operations: Vec::new(),
+        max_runs_per_hour,
+    }))
+}
+
+/// Parses an input type name.
+fn parse_input_type(kind: &str) -> Result<agentmesh_teach::InputType> {
+    use agentmesh_teach::InputType;
+    match kind.trim().to_lowercase().as_str() {
+        "string" => Ok(InputType::String),
+        "integer" => Ok(InputType::Integer),
+        "number" => Ok(InputType::Number),
+        "boolean" => Ok(InputType::Boolean),
+        "array" => Ok(InputType::Array),
+        "object" => Ok(InputType::Object),
+        "datetime" => Ok(InputType::Datetime),
+        other => anyhow::bail!("unknown input type {other:?}"),
+    }
+}
+
+/// Parses a default value for an input type; empty means none.
+fn teach_default_value(
+    raw: &str,
+    input_type: agentmesh_teach::InputType,
+) -> Result<Option<serde_json::Value>> {
+    use agentmesh_teach::InputType;
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    let value = match input_type {
+        InputType::String | InputType::Datetime => serde_json::Value::String(raw.to_string()),
+        InputType::Integer => raw
+            .trim()
+            .parse::<i64>()
+            .map(serde_json::Value::from)
+            .context("default is not an integer")?,
+        InputType::Number => raw
+            .trim()
+            .parse::<f64>()
+            .map(|number| {
+                serde_json::Number::from_f64(number)
+                    .map_or(serde_json::Value::Null, serde_json::Value::Number)
+            })
+            .context("default is not a number")?,
+        InputType::Boolean => match raw.trim().to_lowercase().as_str() {
+            "true" | "yes" | "1" => serde_json::Value::Bool(true),
+            "false" | "no" | "0" => serde_json::Value::Bool(false),
+            _ => anyhow::bail!("default is not a boolean"),
+        },
+        InputType::Array | InputType::Object => {
+            serde_json::from_str(raw).context("default is not valid JSON")?
+        }
+    };
+    Ok(Some(value))
+}
+
+/// Reads one prompt line from the terminal.
+pub(crate) fn teach_prompt(message: &str) -> Result<String> {
+    eprint!("{message}: ");
+    std::io::stderr()
+        .flush()
+        .context("failed to write prompt")?;
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .context("failed to read answer")?;
+    Ok(answer.trim().to_string())
+}
+
+/// Prompts with a default used on empty answers.
+pub(crate) fn teach_prompt_default(message: &str, default: &str) -> Result<String> {
+    let answer = teach_prompt(&format!("{message} [{default}]"))?;
+    Ok(if answer.is_empty() {
+        default.to_string()
+    } else {
+        answer
+    })
+}
+
+/// Yes/no prompt with a default.
+pub(crate) fn teach_yes_no(message: &str, default: bool) -> Result<bool> {
+    let hint = if default { "Y/n" } else { "y/N" };
+    let answer = teach_prompt(&format!("{message} [{hint}]"))?;
+    if answer.is_empty() {
+        return Ok(default);
+    }
+    match answer.to_lowercase().as_str() {
+        "y" | "yes" => Ok(true),
+        "n" | "no" => Ok(false),
+        _ => anyhow::bail!("answer y or n"),
+    }
+}
+
+/// Empty strings become None.
+pub(crate) fn optional(value: String) -> Option<String> {
+    if value.is_empty() { None } else { Some(value) }
+}
+
+/// Lists stored workflows as a table.
+fn workflows_list(lenient: bool) -> Result<()> {
+    if lenient {
+        let dir = agentmesh_teach::workflows_dir()?;
+        let (summaries, errors) = agentmesh_teach::list_workflows_lenient(&dir);
+        if summaries.is_empty() && errors.is_empty() {
+            println!("No workflows stored. Run `agentmesh teach` to create one.");
+            return Ok(());
+        }
+        println!("{:<36} {:<10} {:>5}  DESCRIPTION", "ID", "RUNTIME", "STEPS");
+        for summary in summaries {
+            println!(
+                "{:<36} {:<10} {:>5}  {}",
+                summary.id, summary.runtime, summary.steps, summary.description
+            );
+        }
+        for error in errors {
+            println!("! {}: {}", error.file, error.error);
+        }
+        return Ok(());
+    }
+    let summaries = agentmesh_teach::list_workflows()?;
+    if summaries.is_empty() {
+        println!("No workflows stored. Run `agentmesh teach` to create one.");
+        return Ok(());
+    }
+    println!("{:<36} {:<10} {:>5}  DESCRIPTION", "ID", "RUNTIME", "STEPS");
+    for summary in summaries {
+        println!(
+            "{:<36} {:<10} {:>5}  {}",
+            summary.id, summary.runtime, summary.steps, summary.description
+        );
+    }
+    Ok(())
+}
+
+/// Prints one stored workflow as YAML.
+fn workflows_inspect(id: &str) -> Result<()> {
+    let workflow = agentmesh_teach::load_workflow(id)?;
+    println!(
+        "{}",
+        serde_yaml::to_string(&workflow).context("failed to render workflow")?
+    );
+    Ok(())
+}
+
+/// Validates a workflow file or a stored workflow id.
+fn workflows_validate(target: &str) -> Result<()> {
+    let workflow = if std::path::Path::new(target).is_file() {
+        let document =
+            std::fs::read_to_string(target).with_context(|| format!("failed to read {target}"))?;
+        agentmesh_teach::parse_workflow(&document)?
+    } else {
+        agentmesh_teach::load_workflow(target)?
+    };
+    println!(
+        "valid: {} ({} steps, runtime {})",
+        workflow.id,
+        workflow.steps.len(),
+        workflow.runtime
+    );
     Ok(())
 }
 
