@@ -22,6 +22,7 @@ agentmesh-control-plane = { path = "../agentmesh-control-plane", version = "0.3.
 agentmesh-gateway = { path = "../agentmesh-gateway", version = "0.3.0" }
 agentmesh-proxy = { path = "../agentmesh-proxy", version = "0.3.0" }
 agentmesh-storage = { path = "../agentmesh-storage", version = "0.3.0" }
+agentmesh-teach = { path = "../agentmesh-teach", version = "0.3.0" }
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
