@@ -341,6 +341,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "agentmesh-teach"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "agentmesh-telemetry"
 version = "0.3.0"
 dependencies = [
