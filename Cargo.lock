@@ -18,6 +18,7 @@ dependencies = [
  "agentmesh-gateway",
  "agentmesh-proxy",
  "agentmesh-storage",
+ "agentmesh-teach",
  "anyhow",
  "axum",
  "clap",
@@ -338,6 +339,17 @@ dependencies = [
  "agentmesh-registry",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "agentmesh-teach"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
