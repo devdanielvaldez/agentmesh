@@ -18,6 +18,7 @@ dependencies = [
  "agentmesh-gateway",
  "agentmesh-proxy",
  "agentmesh-storage",
+ "agentmesh-teach",
  "anyhow",
  "axum",
  "clap",
