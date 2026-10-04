@@ -399,9 +399,9 @@ enum WorkflowsAction {
         /// Export format (`mcp`).
         #[arg(long)]
         target: String,
-        /// Output directory.
+        /// Output directory. Defaults to the platform `AgentMesh` data directory under `mcp/`.
         #[arg(long)]
-        out: String,
+        out: Option<String>,
     },
     /// Writes a ready-to-use MCP client config for an exported server.
     ClientConfig {
@@ -955,7 +955,7 @@ fn dispatch_workflows_execute(action: &WorkflowsAction) -> Result<()> {
             if !all && id.is_none() {
                 anyhow::bail!("provide a workflow id or use --all");
             }
-            teach_flow::workflows_export(id.as_deref(), *all, target, out)
+            teach_flow::workflows_export(id.as_deref(), *all, target, out.as_deref())
         }
         WorkflowsAction::Dataset {
             out,

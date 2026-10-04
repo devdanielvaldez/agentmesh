@@ -98,6 +98,7 @@ fn infer(events: &[SemanticEvent], raw: bool) -> InferredDraft {
             TraceKind::Fill => infer_fill(&mut draft, event, &mut counter, raw),
             TraceKind::Select => infer_select(&mut draft, event, &mut counter, raw),
             TraceKind::Extract => infer_extract(&mut draft, event, &mut counter),
+            TraceKind::Scroll => infer_scroll(&mut draft, event, &mut counter, raw),
         }
     }
     if network_calls > 0 {
@@ -306,6 +307,71 @@ fn infer_extract(draft: &mut InferredDraft, event: &SemanticEvent, counter: &mut
     }
 }
 
+/// Turns a debounced wheel/trackpad gesture into a scroll of the exact
+/// scrollable region recorded under the pointer. Consecutive gestures in the
+/// same direction and region collapse into a bounded iteration count. Holding
+/// Alt while scrolling records the explicit `until_stable` pagination mode.
+fn infer_scroll(draft: &mut InferredDraft, event: &SemanticEvent, counter: &mut u32, raw: bool) {
+    let Some(target) = event.target.as_ref().map(describe) else {
+        draft
+            .warnings
+            .push("recorded a scroll without a target; skipped".to_string());
+        return;
+    };
+    let direction = if event.delta_y.abs() >= event.delta_x.abs() {
+        if event.delta_y < 0.0 { "up" } else { "down" }
+    } else if event.delta_x < 0.0 {
+        "left"
+    } else {
+        "right"
+    };
+    let target_identity = scroll_target_key(&target);
+
+    if !raw {
+        if let Some(previous) = draft.steps.last_mut().filter(|step| {
+            step.op == "ui.scroll"
+                && step.value.as_deref() == Some(direction)
+                && scroll_target_key(step.target.as_ref().expect("scroll target"))
+                    == target_identity
+        }) {
+            if event.until_stable {
+                previous.iterations = Some("until_stable".to_string());
+            } else if previous.iterations.as_deref() != Some("until_stable") {
+                let count = previous
+                    .iterations
+                    .as_deref()
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or(1)
+                    .saturating_add(1)
+                    .min(100);
+                previous.iterations = Some(count.to_string());
+            }
+            return;
+        }
+    }
+
+    push_step(
+        draft,
+        Step {
+            id: step_id("scroll", counter),
+            op: "ui.scroll".to_string(),
+            target: Some(target),
+            value: Some(direction.to_string()),
+            url: None,
+            limit: None,
+            timeout_ms: None,
+            condition: None,
+            iterations: Some(if event.until_stable {
+                "until_stable".to_string()
+            } else {
+                "1".to_string()
+            }),
+            destination: None,
+            path: None,
+        },
+    );
+}
+
 fn infer_select(draft: &mut InferredDraft, event: &SemanticEvent, counter: &mut u32, raw: bool) {
     if let Some(target) = event.target.as_ref().map(describe) {
         let selected = event.selected.clone().unwrap_or_default();
@@ -503,6 +569,17 @@ fn target_key(target: &Target) -> String {
     )
 }
 
+/// Scroll regions are often unnamed `div`s, so their strongest selector must
+/// participate in deduplication to keep adjacent feeds separate.
+fn scroll_target_key(target: &Target) -> String {
+    format!(
+        "{}|{}|{}",
+        target.role.as_deref().unwrap_or(""),
+        target.accessible_name.as_deref().unwrap_or(""),
+        target.selectors.first().map_or("", String::as_str)
+    )
+}
+
 /// Returns the literal text of a template-free value.
 fn literal_of(value: Option<&String>) -> Option<&str> {
     value
@@ -690,6 +767,9 @@ mod tests {
                 literal: literal.to_string(),
             }),
             selected: None,
+            delta_x: 0.0,
+            delta_y: 0.0,
+            until_stable: false,
             method: None,
             host: None,
             path: None,
@@ -828,6 +908,34 @@ mod tests {
         assert_eq!(draft.steps[0].op, "ui.extract");
         assert!(draft.steps[0].id.starts_with("read_"));
         assert!(draft.candidates.is_empty());
+    }
+
+    #[test]
+    fn scrolls_target_the_recorded_region_and_collapse() {
+        let scroll = |delta_y: f64, until_stable: bool| SemanticEvent {
+            kind: TraceKind::Scroll,
+            delta_y,
+            until_stable,
+            target: Some(RecordedTarget {
+                role: "feed".to_string(),
+                name: "Messages".to_string(),
+                selectors: vec!["#message-list".to_string()],
+                ..RecordedTarget::default()
+            }),
+            ..fill_event("ignored", "")
+        };
+        let draft = infer_draft(&[scroll(420.0, false), scroll(300.0, true)]);
+        assert_eq!(draft.steps.len(), 1);
+        assert_eq!(draft.steps[0].op, "ui.scroll");
+        assert_eq!(draft.steps[0].value.as_deref(), Some("down"));
+        assert_eq!(draft.steps[0].iterations.as_deref(), Some("until_stable"));
+        assert_eq!(
+            draft.steps[0]
+                .target
+                .as_ref()
+                .and_then(|target| target.accessible_name.as_deref()),
+            Some("Messages")
+        );
     }
 
     #[test]

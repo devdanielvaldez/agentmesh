@@ -6,6 +6,13 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ## [Unreleased]
 
+### Changed
+
+- Generated and runtime data now defaults to native per-user data directories on macOS, Windows,
+  and Linux. Persistent browser sessions live under `sessions/`, MCP exports under `mcp/`, and MCP
+  runtime state under `mcp-state/`; `AGENTMESH_HOME`, `--out`, and `AGENTMESH_MCP_STATE_DIR` remain
+  explicit overrides.
+
 ### Added
 
 - Comprehensive English user documentation with Mermaid architecture/request/deployment diagrams,

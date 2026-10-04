@@ -33,6 +33,15 @@ pub struct SemanticEvent {
     /// Selected option label for `ui.select`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
+    /// Horizontal wheel delta accumulated for one debounced `ui.scroll` gesture.
+    #[serde(rename = "deltaX", default)]
+    pub delta_x: f64,
+    /// Vertical wheel delta accumulated for one debounced `ui.scroll` gesture.
+    #[serde(rename = "deltaY", default)]
+    pub delta_y: f64,
+    /// Whether the user marked this scroll zone as infinite pagination.
+    #[serde(rename = "untilStable", default)]
+    pub until_stable: bool,
     /// HTTP method for sanitized network calls.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
@@ -77,6 +86,9 @@ pub enum TraceKind {
     /// Content extraction probe (smoke mode).
     #[serde(rename = "ui.extract")]
     Extract,
+    /// Wheel/trackpad scrolling inside a specific scrollable region.
+    #[serde(rename = "ui.scroll")]
+    Scroll,
     /// Sanitized network metadata.
     #[serde(rename = "network.call")]
     NetworkCall,

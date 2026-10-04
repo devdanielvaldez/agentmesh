@@ -1,11 +1,17 @@
-//! Local workflow store under the `AgentMesh` home directory.
+//! Local workflow store under the platform-native `AgentMesh` data directory.
 //!
-//! Layout (runtime override via `AGENTMESH_HOME`, otherwise `~/.agentmesh`):
+//! `AGENTMESH_HOME` overrides the platform default. Otherwise data lives in:
+//!
+//! - macOS: `~/Library/Application Support/AgentMesh`
+//! - Windows: `%LOCALAPPDATA%\AgentMesh`
+//! - Linux: `${XDG_DATA_HOME:-~/.local/share}/agentmesh`
 //!
 //! ```text
 //! $AGENTMESH_HOME/
-//! └── workflows/
-//!     └── whatsapp.read_messages.yaml
+//! ├── workflows/
+//! │   └── whatsapp.read_messages.yaml
+//! ├── sessions/
+//! └── mcp/
 //! ```
 //!
 //! Workflow ids are restricted to filename-safe characters by the IR
@@ -42,18 +48,65 @@ pub fn workflows_dir_in(home: &std::path::Path) -> Result<PathBuf, TeachError> {
     Ok(dir)
 }
 
-/// `AgentMesh` home: `AGENTMESH_HOME` wins, otherwise `~/.agentmesh`.
-/// Returns `None` when neither resolves.
+/// `AgentMesh` data home: `AGENTMESH_HOME` wins, otherwise the native user
+/// data directory for the current platform. Returns `None` when no suitable
+/// environment-backed user directory can be resolved.
 #[must_use]
 pub fn home_dir() -> Option<PathBuf> {
-    if let Ok(home) = std::env::var("AGENTMESH_HOME") {
-        if !home.trim().is_empty() {
-            return Some(PathBuf::from(home));
-        }
+    if let Some(home) = nonempty_env("AGENTMESH_HOME") {
+        return Some(PathBuf::from(home));
     }
-    std::env::var("HOME")
-        .ok()
-        .map(|home| PathBuf::from(home).join(".agentmesh"))
+    default_home_dir_for(
+        std::env::consts::OS,
+        nonempty_env("HOME").as_deref(),
+        nonempty_env("LOCALAPPDATA").as_deref(),
+        nonempty_env("APPDATA").as_deref(),
+        nonempty_env("XDG_DATA_HOME").as_deref(),
+        nonempty_env("USERPROFILE").as_deref(),
+    )
+}
+
+fn nonempty_env(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(name).filter(|value| !value.is_empty())
+}
+
+fn default_home_dir_for(
+    os: &str,
+    home: Option<&std::ffi::OsStr>,
+    local_app_data: Option<&std::ffi::OsStr>,
+    app_data: Option<&std::ffi::OsStr>,
+    xdg_data_home: Option<&std::ffi::OsStr>,
+    user_profile: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    match os {
+        "macos" => home.map(|path| {
+            PathBuf::from(path)
+                .join("Library")
+                .join("Application Support")
+                .join("AgentMesh")
+        }),
+        "windows" => local_app_data
+            .or(app_data)
+            .map(|path| PathBuf::from(path).join("AgentMesh"))
+            .or_else(|| {
+                user_profile.map(|path| {
+                    PathBuf::from(path)
+                        .join("AppData")
+                        .join("Local")
+                        .join("AgentMesh")
+                })
+            }),
+        _ => xdg_data_home
+            .map(|path| PathBuf::from(path).join("agentmesh"))
+            .or_else(|| {
+                home.map(|path| {
+                    PathBuf::from(path)
+                        .join(".local")
+                        .join("share")
+                        .join("agentmesh")
+                })
+            }),
+    }
 }
 
 /// Saves a workflow as `<id>.yaml`, re-validating first.
@@ -303,6 +356,57 @@ mod tests {
     use super::*;
     use crate::{InputDef, InputType, Step};
     use std::collections::BTreeMap;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn platform_data_homes_follow_native_conventions() {
+        assert_eq!(
+            default_home_dir_for(
+                "macos",
+                Some(OsStr::new("/Users/demo")),
+                None,
+                None,
+                None,
+                None,
+            ),
+            Some(PathBuf::from(
+                "/Users/demo/Library/Application Support/AgentMesh"
+            ))
+        );
+        assert_eq!(
+            default_home_dir_for(
+                "windows",
+                None,
+                Some(OsStr::new(r"C:\Users\demo\AppData\Local")),
+                None,
+                None,
+                None,
+            ),
+            Some(PathBuf::from(r"C:\Users\demo\AppData\Local").join("AgentMesh"))
+        );
+        assert_eq!(
+            default_home_dir_for(
+                "linux",
+                Some(OsStr::new("/home/demo")),
+                None,
+                None,
+                Some(OsStr::new("/srv/user-data")),
+                None,
+            ),
+            Some(PathBuf::from("/srv/user-data/agentmesh"))
+        );
+        assert_eq!(
+            default_home_dir_for(
+                "linux",
+                Some(OsStr::new("/home/demo")),
+                None,
+                None,
+                None,
+                None,
+            ),
+            Some(PathBuf::from("/home/demo/.local/share/agentmesh"))
+        );
+    }
 
     fn sample(id: &str) -> Workflow {
         Workflow {

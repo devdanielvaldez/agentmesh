@@ -8,6 +8,7 @@ AgentMesh. Start with the path that matches your role.
 | I want to… | Start here |
 | --- | --- |
 | Run AgentMesh locally | [User Guide](USER_GUIDE.md) |
+| Find generated files and sessions | [Data Directories](DATA_DIRECTORIES.md) |
 | Deploy or operate it | [Deployment and Operations](OPERATIONS.md) |
 | Understand the system design | [Technical Architecture](T_ARCHITECTURE.md) |
 | Integrate an MCP client or server | [Protocol Support](PROTOCOL_SUPPORT.md) and [Transports](TRANSPORTS.md) |
