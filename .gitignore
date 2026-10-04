@@ -9,4 +9,6 @@
 *.profraw
 coverage/
 dist/
+node_modules/
+.cargo-tmp/
 
