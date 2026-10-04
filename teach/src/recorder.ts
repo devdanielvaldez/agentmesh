@@ -47,7 +47,7 @@ function parseArgs(): Args {
   };
 }
 
-const INIT_SCRIPT = `
+export const RECORDER_INIT_SCRIPT = `
 (() => {
   if (window.__amInstalled) return;
   window.__amInstalled = true;
@@ -177,6 +177,60 @@ const INIT_SCRIPT = `
       void emit("ui.submit", el, {});
     }
   }, true);
+
+  // Wheel events point at a child inside the scrolling region. Walk toward
+  // the document and keep the nearest ancestor that can actually scroll in
+  // the gesture's dominant axis. A short debounce turns the many events from
+  // a wheel/trackpad gesture into one semantic ui.scroll event.
+  function scrollRegion(start, deltaX, deltaY) {
+    const vertical = Math.abs(deltaY) >= Math.abs(deltaX);
+    let el = start;
+    while (el) {
+      const style = getComputedStyle(el);
+      const overflow = vertical ? style.overflowY : style.overflowX;
+      const hasRange = vertical
+        ? el.scrollHeight > el.clientHeight + 1
+        : el.scrollWidth > el.clientWidth + 1;
+      if (hasRange && /^(auto|scroll|overlay)$/.test(overflow)) return el;
+      el = el.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+
+  let pendingScroll = null;
+  function flushScroll() {
+    const pending = pendingScroll;
+    pendingScroll = null;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    if (Math.abs(pending.deltaX) + Math.abs(pending.deltaY) < 1) return;
+    void emit("ui.scroll", pending.el, {
+      deltaX: pending.deltaX,
+      deltaY: pending.deltaY,
+      untilStable: pending.untilStable,
+    });
+  }
+
+  document.addEventListener("wheel", (e) => {
+    const start = e.target instanceof Element ? e.target : document.documentElement;
+    const scale = e.deltaMode === 1
+      ? 16
+      : e.deltaMode === 2
+        ? Math.max(window.innerHeight, window.innerWidth)
+        : 1;
+    const deltaX = e.deltaX * scale;
+    const deltaY = e.deltaY * scale;
+    const el = scrollRegion(start, deltaX, deltaY);
+    if (pendingScroll && pendingScroll.el !== el) flushScroll();
+    if (!pendingScroll) {
+      pendingScroll = { el, deltaX: 0, deltaY: 0, untilStable: false, timer: 0 };
+    }
+    pendingScroll.deltaX += deltaX;
+    pendingScroll.deltaY += deltaY;
+    pendingScroll.untilStable ||= e.altKey;
+    clearTimeout(pendingScroll.timer);
+    pendingScroll.timer = setTimeout(flushScroll, 180);
+  }, { capture: true, passive: true });
 })();
 `;
 
@@ -298,6 +352,13 @@ export function describeEvent(event: Record<string, unknown>): string {
   else if (typeof event.selected === "string") what = ` = ${clip(JSON.stringify(event.selected), 60)}`;
   else if (typeof event.extracted === "object") {
     what = ` (${(event.extracted as unknown[]).length} items)`;
+  } else if (kind === "ui.scroll") {
+    const deltaX = Number(event.deltaX ?? 0);
+    const deltaY = Number(event.deltaY ?? 0);
+    const direction = Math.abs(deltaY) >= Math.abs(deltaX)
+      ? (deltaY < 0 ? "up" : "down")
+      : (deltaX < 0 ? "left" : "right");
+    what = ` ${direction}${event.untilStable === true ? " until_stable" : ""}`;
   }
   return `${kind}${who ? " " + who : ""}${what}`;
 }
@@ -363,6 +424,13 @@ async function main(): Promise<void> {
       ...(kind === "ui.extract" && Array.isArray(payload.extracted)
         ? { extracted: (payload.extracted as string[]).slice(0, 20) }
         : {}),
+      ...(kind === "ui.scroll"
+        ? {
+            deltaX: Number.isFinite(Number(payload.deltaX)) ? Number(payload.deltaX) : 0,
+            deltaY: Number.isFinite(Number(payload.deltaY)) ? Number(payload.deltaY) : 0,
+            untilStable: payload.untilStable === true,
+          }
+        : {}),
     });
   };
 
@@ -370,7 +438,7 @@ async function main(): Promise<void> {
     const page = _source.page as unknown as { url(): string };
     await emitAction(kind, { ...payload, page });
   });
-  await context.addInitScript(INIT_SCRIPT);
+  await context.addInitScript(RECORDER_INIT_SCRIPT);
   // Pages open before the capture script installed never received it;
   // reloading gives them a fresh document with capture active.
   for (const page of context.pages()) {
@@ -491,7 +559,11 @@ async function runSmoke(
       <input name="pw" type="password" />
       <button type="submit">Send</button>
     </form>
-    <ul id="messages"><li>hello</li><li>world</li></ul>`;
+    <ul id="messages"><li>hello</li><li>world</li></ul>
+    <div id="feed" role="feed" aria-label="Messages"
+         style="height:80px; overflow-y:auto">
+      <div style="height:500px">scroll content</div>
+    </div>`;
   });
   await page.getByLabel("Contact").fill("Daniel");
   await page.locator('input[name="pw"]').fill("s3cret");
@@ -499,6 +571,9 @@ async function runSmoke(
   // Alt+click is the "capture text here" gesture: it must record an
   // extraction probe through the same in-page pipeline as real users.
   await page.locator("#messages").click({ modifiers: ["Alt"] });
+  const feed = page.locator("#feed");
+  await feed.hover();
+  await page.mouse.wheel(0, 240);
   await page.waitForTimeout(300);
   const items = await page.locator("#messages li").allInnerTexts();
   emit({ kind: "ui.extract", url: page.url(), target: { semantic: "messages" }, extracted: items });

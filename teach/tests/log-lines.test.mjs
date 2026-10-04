@@ -61,6 +61,18 @@ test("submit line carries the field for Enter-to-submit", () => {
   assert.match(line, /textbox/);
 });
 
+test("scroll line carries direction and infinite-pagination marker", () => {
+  const line = describeEvent({
+    kind: "ui.scroll",
+    target: { tag: "div", role: "feed", name: "Messages", selectors: ["#feed"] },
+    deltaX: 0,
+    deltaY: 240,
+    untilStable: true,
+  });
+  assert.match(line, /^ui\.scroll /);
+  assert.match(line, /down until_stable$/);
+});
+
 test("session boundaries log without payloads", () => {
   assert.equal(
     describeEvent({ kind: "session.start", scope: "https://app.example", headed: false }),

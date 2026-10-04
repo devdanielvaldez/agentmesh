@@ -181,6 +181,123 @@ export function parseIterations(rendered: string, stepId: string): number {
   return count;
 }
 
+export type ScrollDirection = "up" | "down" | "left" | "right";
+
+/** Parses the ui.scroll iteration contract without allowing an unbounded run. */
+export function parseScrollIterations(
+  rendered: string,
+  stepId: string,
+): number | "until_stable" {
+  if (rendered.trim() === "until_stable") return "until_stable";
+  const count = Number(rendered.trim());
+  if (!Number.isInteger(count) || count < 1 || count > 100) {
+    throw new Error(
+      `step "${stepId}" (ui.scroll) needs iterations 1-100 or until_stable, got ${JSON.stringify(rendered)}`,
+    );
+  }
+  return count;
+}
+
+/** One gesture moves most of the visible region while retaining context. */
+export function scrollDelta(
+  direction: ScrollDirection,
+  clientWidth: number,
+  clientHeight: number,
+): { left: number; top: number } {
+  const horizontal = Math.max(100, Math.floor((clientWidth || 750) * 0.8));
+  const vertical = Math.max(100, Math.floor((clientHeight || 750) * 0.8));
+  switch (direction) {
+    case "up": return { left: 0, top: -vertical };
+    case "down": return { left: 0, top: vertical };
+    case "left": return { left: -horizontal, top: 0 };
+    case "right": return { left: horizontal, top: 0 };
+  }
+}
+
+interface ScrollSnapshot {
+  left: number;
+  top: number;
+  clientWidth: number;
+  clientHeight: number;
+  scrollWidth: number;
+  scrollHeight: number;
+}
+
+async function scrollSnapshot(locator: Locator): Promise<ScrollSnapshot> {
+  return locator.evaluate((node) => {
+    const element = node as HTMLElement;
+    const root = document.scrollingElement as HTMLElement | null;
+    const target = element === document.body || element === document.documentElement
+      ? (root ?? document.documentElement)
+      : element;
+    return {
+      left: target.scrollLeft,
+      top: target.scrollTop,
+      clientWidth: target.clientWidth,
+      clientHeight: target.clientHeight,
+      scrollWidth: target.scrollWidth,
+      scrollHeight: target.scrollHeight,
+    };
+  });
+}
+
+function scrollChanged(before: ScrollSnapshot, after: ScrollSnapshot): boolean {
+  return before.left !== after.left ||
+    before.top !== after.top ||
+    before.scrollWidth !== after.scrollWidth ||
+    before.scrollHeight !== after.scrollHeight;
+}
+
+/** Replays scroll against the recorded region, including bounded infinite pagination. */
+export async function performScroll(
+  locator: Locator,
+  page: Page,
+  direction: ScrollDirection,
+  iterations: number | "until_stable",
+  timeout: number,
+  audit: (event: Record<string, unknown>) => void = () => undefined,
+): Promise<number> {
+  await locator.scrollIntoViewIfNeeded({ timeout });
+  const maximum = iterations === "until_stable" ? 100 : iterations;
+  let performed = 0;
+  for (let round = 1; round <= maximum; round += 1) {
+    const before = await scrollSnapshot(locator);
+    const delta = scrollDelta(direction, before.clientWidth, before.clientHeight);
+    await locator.evaluate((node, movement) => {
+      const element = node as HTMLElement;
+      const root = document.scrollingElement as HTMLElement | null;
+      if (element === document.body || element === document.documentElement || element === root) {
+        window.scrollBy({ left: movement.left, top: movement.top, behavior: "auto" });
+      } else {
+        element.scrollBy({ left: movement.left, top: movement.top, behavior: "auto" });
+      }
+    }, delta);
+    performed = round;
+    await page.waitForTimeout(200);
+    let after = await scrollSnapshot(locator);
+    let changed = scrollChanged(before, after);
+
+    // Infinite feeds commonly append after the scroll position has already
+    // stopped. Give one loading window before declaring the region stable.
+    if (iterations === "until_stable" && !changed) {
+      await page.waitForTimeout(600);
+      const settled = await scrollSnapshot(locator);
+      changed = scrollChanged(after, settled);
+      after = settled;
+    }
+    audit({
+      event: "step.scrolled",
+      direction,
+      round,
+      changed,
+      scroll_left: after.left,
+      scroll_top: after.top,
+    });
+    if (iterations === "until_stable" && !changed) break;
+  }
+  return performed;
+}
+
 /** Checks a JSON value against a type descriptor (`array`, `object`, `string`, ...). */
 export function assertSchemaMatches(expected: string, actual: unknown, stepId: string): void {
   const trimmed = expected.trim();
@@ -506,7 +623,24 @@ async function executeStep(
     case "ui.press": await (await locate()).press((value ?? "Enter") as string, { timeout }); break;
     case "ui.select": await (await locate()).selectOption({ label: value ?? "" }, { timeout }); break;
     case "ui.focus": await (await locate()).focus({ timeout }); break;
-    case "ui.scroll": await (await locate()).scrollIntoViewIfNeeded({ timeout }); break;
+    case "ui.scroll": {
+      if (!value || !["up", "down", "left", "right"].includes(value)) {
+        throw new Error(`step "${step.id}" (ui.scroll) needs direction up, down, left, or right`);
+      }
+      const renderedIterations = step.iterations !== undefined
+        ? substitute(step.iterations, inputs, results)
+        : "1";
+      const iterations = parseScrollIterations(renderedIterations, step.id);
+      await performScroll(
+        await locate(),
+        current(),
+        value as ScrollDirection,
+        iterations,
+        timeout,
+        (event) => audit({ ...event, step: step.id }),
+      );
+      break;
+    }
     case "ui.drag":
     case "ui.drop": {
       const source = await locate();
