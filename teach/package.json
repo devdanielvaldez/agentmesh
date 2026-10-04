@@ -1,0 +1,23 @@
+{
+  "name": "@agentmesh/teach",
+  "version": "0.3.0",
+  "description": "Browser recorder, workflow runtime, and session manager for AgentMesh Teach",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "smoke": "node dist/smoke.js",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "playwright-core": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
