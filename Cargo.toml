@@ -31,6 +31,7 @@ members = [
     "crates/agentmesh-testkit",
     "crates/agentmesh-registry",
     "crates/agentmesh-transport",
+    "crates/agentmesh-teach",
 ]
 resolver = "2"
 
