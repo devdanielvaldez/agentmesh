@@ -16,13 +16,13 @@ name = "agentmesh"
 path = "src/main.rs"
 
 [dependencies]
-agentmesh-config = { path = "../agentmesh-config", version = "0.3.0" }
-agentmesh-control-api = { path = "../agentmesh-control-api", version = "0.3.0" }
-agentmesh-control-plane = { path = "../agentmesh-control-plane", version = "0.3.0" }
-agentmesh-gateway = { path = "../agentmesh-gateway", version = "0.3.0" }
-agentmesh-proxy = { path = "../agentmesh-proxy", version = "0.3.0" }
-agentmesh-storage = { path = "../agentmesh-storage", version = "0.3.0" }
-agentmesh-teach = { path = "../agentmesh-teach", version = "0.3.0" }
+agentmesh-config = { path = "../agentmesh-config", version = "0.3.1" }
+agentmesh-control-api = { path = "../agentmesh-control-api", version = "0.3.1" }
+agentmesh-control-plane = { path = "../agentmesh-control-plane", version = "0.3.1" }
+agentmesh-gateway = { path = "../agentmesh-gateway", version = "0.3.1" }
+agentmesh-proxy = { path = "../agentmesh-proxy", version = "0.3.1" }
+agentmesh-storage = { path = "../agentmesh-storage", version = "0.3.1" }
+agentmesh-teach = { path = "../agentmesh-teach", version = "0.3.1" }
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true

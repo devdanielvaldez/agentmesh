@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agentmesh"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-config",
  "agentmesh-control-api",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-audit"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-cache",
  "agentmesh-core",
@@ -51,7 +51,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-authn"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-authz"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-authn",
  "agentmesh-error",
@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-cache"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-circuit-breaker"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-config"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-control-api"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-control-plane",
  "agentmesh-error",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-control-plane"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-storage",
@@ -126,7 +126,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "uuid",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-credentials"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-error",
@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-discovery"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-error",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-error"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-gateway"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-config",
  "agentmesh-error",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-health"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-load-balancer"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-circuit-breaker",
  "agentmesh-core",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-plugins"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "serde",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-policy"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-authn",
  "agentmesh-authz",
@@ -237,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-protocol"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "serde",
@@ -246,7 +246,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-proxy"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-protocol",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-rate-limit"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-registry"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-error",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-resilience"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "serde",
@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-router"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-error",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "serde",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-security"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "serde_json",
@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-storage"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "rusqlite",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-tasks"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-registry",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-teach"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -354,7 +354,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-telemetry"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "serde",
@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-testkit"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-protocol",
@@ -374,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "agentmesh-transport"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agentmesh-error",
  "agentmesh-protocol",

@@ -8,16 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-authn = { path = "../agentmesh-authn", version = "0.3.0" }
-agentmesh-authz = { path = "../agentmesh-authz", version = "0.3.0" }
-agentmesh-error = { path = "../agentmesh-error", version = "0.3.0" }
-agentmesh-registry = { path = "../agentmesh-registry", version = "0.3.0" }
+agentmesh-authn = { path = "../agentmesh-authn", version = "0.3.1" }
+agentmesh-authz = { path = "../agentmesh-authz", version = "0.3.1" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
+agentmesh-registry = { path = "../agentmesh-registry", version = "0.3.1" }
 serde.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-agentmesh-rate-limit = { path = "../agentmesh-rate-limit", version = "0.3.0" }
-agentmesh-tasks = { path = "../agentmesh-tasks", version = "0.3.0" }
+agentmesh-rate-limit = { path = "../agentmesh-rate-limit", version = "0.3.1" }
+agentmesh-tasks = { path = "../agentmesh-tasks", version = "0.3.1" }
 
 [lints]
 workspace = true

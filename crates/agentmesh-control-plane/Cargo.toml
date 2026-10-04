@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-error = { path = "../agentmesh-error", version = "0.3.0" }
-agentmesh-storage = { path = "../agentmesh-storage", version = "0.3.0" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
+agentmesh-storage = { path = "../agentmesh-storage", version = "0.3.1" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
