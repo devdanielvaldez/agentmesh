@@ -1,12 +1,13 @@
-//! `AgentMesh` Teach foundations: the Workflow IR and its validator.
+//! `AgentMesh` Teach foundations: the Workflow IR, its validator, and the
+//! semantic-trace schema.
 //!
 //! The IR is the portable contract between every Teach component: recorders
 //! produce it (via semantic traces), the validator accepts or rejects it,
 //! runtimes execute it, and compilers turn it into MCP tools, CLIs, or REST
-//! endpoints. This crate owns the schema and the static checks; storage,
-//! inference, and execution live in later commits.
+//! endpoints. Storage, inference, and execution live in later commits.
 
 mod ir;
+mod trace;
 
 pub use ir::{
     ApiObservation, InputDef, InputType, KNOWN_OPS, OutputDef, RecoveryPolicy,
@@ -14,6 +15,7 @@ pub use ir::{
     extract_template_refs, parse_workflow, relax_workflow, validate_workflow,
 };
 use thiserror::Error;
+pub use trace::{RecordedTarget, SemanticEvent, TraceKind, TraceValue, read_trace};
 
 /// Teach failure: unparsable YAML, invalid IR, unknown workflow, or storage error.
 #[derive(Debug, Error)]
