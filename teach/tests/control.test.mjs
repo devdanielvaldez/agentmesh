@@ -4,6 +4,8 @@ import {
   assertSchemaMatches,
   evalCondition,
   parseIterations,
+  parseScrollIterations,
+  scrollDelta,
   substitute,
 } from "../dist/executor.js";
 
@@ -33,6 +35,22 @@ describe("control helpers", () => {
     assert.throws(() => parseIterations("0", "repeat"), /iterations 1-100/);
     assert.throws(() => parseIterations("101", "repeat"), /iterations 1-100/);
     assert.throws(() => parseIterations("many", "repeat"), /iterations 1-100/);
+  });
+});
+
+describe("scroll helpers", () => {
+  it("parses bounded counts and the stable sentinel", () => {
+    assert.equal(parseScrollIterations("3", "feed"), 3);
+    assert.equal(parseScrollIterations("until_stable", "feed"), "until_stable");
+    assert.throws(() => parseScrollIterations("0", "feed"), /1-100 or until_stable/);
+    assert.throws(() => parseScrollIterations("101", "feed"), /1-100 or until_stable/);
+  });
+
+  it("maps every direction to an 80% viewport gesture", () => {
+    assert.deepEqual(scrollDelta("down", 500, 1000), { left: 0, top: 800 });
+    assert.deepEqual(scrollDelta("up", 500, 1000), { left: 0, top: -800 });
+    assert.deepEqual(scrollDelta("right", 500, 1000), { left: 400, top: 0 });
+    assert.deepEqual(scrollDelta("left", 500, 1000), { left: -400, top: 0 });
   });
 });
 
