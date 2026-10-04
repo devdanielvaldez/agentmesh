@@ -1,15 +1,21 @@
 //! `AgentMesh` Teach foundations: the Workflow IR, its validator, semantic
-//! traces, and local workflow storage.
+//! traces, local storage, and deterministic trace-to-IR inference.
 //!
 //! The IR is the portable contract between every Teach component: recorders
 //! produce it (via semantic traces), the validator accepts or rejects it,
 //! runtimes execute it, and compilers turn it into MCP tools, CLIs, or REST
-//! endpoints. Inference and execution live in later commits.
+//! endpoints. Memory and client configs live in the next commit.
 
+mod infer;
 mod ir;
 mod store;
 mod trace;
 
+pub use infer::{
+    Divergence, InferredDraft, ParamCandidate, candidate_input, draft_secret_refs,
+    find_divergent_literals, find_secret_refs, infer_draft, infer_draft_raw, normalize_secret_slug,
+    secret_env_var, suggest_secret_slug,
+};
 pub use ir::{
     ApiObservation, InputDef, InputType, KNOWN_OPS, OutputDef, RecoveryPolicy,
     SUPPORTED_IR_VERSION, Step, Target, Workflow, WorkflowAssertion, WorkflowPolicy,
