@@ -383,6 +383,99 @@ This is traffic management (which upstream serves a call, at what rate, with wha
 RBAC and human approvals live in the `agentmesh-policy` crate. Full semantics and examples are in
 the [User Guide](docs/USER_GUIDE.md).
 
+## AgentMesh Teach
+
+Teach any application to AI agents: demonstrate a task once, and AgentMesh turns it into a
+reusable, validated, policy-guarded capability.
+
+```bash
+agentmesh teach --name whatsapp.read_messages   # guided workflow authoring
+agentmesh workflows list                        # stored capabilities
+agentmesh workflows inspect whatsapp.read_messages
+agentmesh workflows validate ./workflow.yaml
+
+# Publish every demonstrated capability as a tool library for an AI model.
+agentmesh workflows export --all --target mcp --out ./taught-capabilities-mcp
+```
+
+Workflows are stored as a portable Workflow IR (`~/.agentmesh/workflows/<id>.yaml`) that
+describes _what_ a capability does — semantic targets and `{{ inputs.* }}` templates, never
+coordinates or raw recordings:
+
+```yaml
+version: "1.0"
+id: whatsapp.read_messages
+runtime: browser
+inputs:
+  contact: { type: string, required: true }
+  limit: { type: integer, default: 20 }
+steps:
+  - id: search_contact
+    op: ui.fill
+    target: { semantic: conversation_search, role: textbox }
+    value: "{{ inputs.contact }}"
+  - id: read_messages
+    op: ui.extract
+    target: { semantic: message_list }
+outputs:
+  messages: { from: steps.read_messages.result }
+```
+
+Every load re-validates (unknown ops and dangling references fail closed). An MCP export gives
+the model operational memory rather than changing its weights: each taught workflow becomes a
+named tool with a typed input schema, description, outputs, policy checks, audit trail, and repair
+candidates. Large libraries expose progressive search/describe/execute tools plus value-free
+reusable routines. Write-capable MCP calls request contextual approval; a server owner can
+preauthorize them with `AGENTMESH_MCP_ALLOW_WRITES=1`. Extracted content is marked untrusted,
+and secrets remain outside the model. Experience reports and redacted trajectory exports provide
+an evaluation/training bridge without claiming to train weights locally. Full schema and operation
+families: [Workflow IR](docs/WORKFLOW_IR.md).
+Hands-on walkthrough: [Teach manual](docs/TEACH_MANUAL.md).
+
+### Connect an AI client
+
+An export is a plain MCP stdio server. Generate its ready-to-use client file
+instead of hand-writing JSON — the command absolutizes the server path,
+derives the entry name from the export, and attaches the session profile that
+carries logins (without it, login-backed tools run logged out):
+
+```bash
+agentmesh workflows export --all --target mcp --out ./taught-capabilities-mcp
+cd ./taught-capabilities-mcp && npm install && cd ..
+
+agentmesh workflows client-config --client claude-code \
+  --server ./taught-capabilities-mcp/server.mjs \
+  --profile whatsapp --out ./taught-capabilities-mcp/claude-mcp.json
+```
+
+| `--client` | Produces | Placement |
+| --- | --- | --- |
+| `claude-code` | `.mcp.json` | Copy to `.mcp.json` in the project root where Claude Code runs (or merge its `mcpServers` entry). |
+| `claude-desktop` | `claude_desktop_config.json` | Merge into the Claude Desktop config file, then fully quit (`Cmd+Q`) and reopen. |
+| `generic` | `mcp.json` | Give to any MCP host that accepts local stdio servers. |
+
+The written file needs no edits:
+
+```json
+{
+  "mcpServers": {
+    "agentmesh-taught-capabilities": {
+      "command": "node",
+      "args": ["/abs/path/taught-capabilities-mcp/server.mjs"],
+      "env": {
+        "AGENTMESH_TEACH_PROFILE": "/home/user/.agentmesh/profiles/whatsapp"
+      }
+    }
+  }
+}
+```
+
+`--profile` accepts a session name (`whatsapp`) or a profile directory; omit
+it for login-free tools (the command warns). Unknown clients, missing servers,
+and unknown profiles fail closed with the supported values listed. Re-exporting
+refreshes `catalog.json`/`routines.json`, which a running server reloads
+without restart; per-tool registrations added afterwards need a re-export.
+
 ## CLI reference
 
 | Command | Purpose |
@@ -400,6 +493,11 @@ the [User Guide](docs/USER_GUIDE.md).
 | `monitor` | Watch a running gateway live until interrupted. |
 | `policy` | Dry-run gateway policies for one tool call without executing it. |
 | `upgrade` | Check for a newer release and optionally install it. |
+| `teach` | Interactively author a workflow draft into the local store (`manual` or `--target browser` recording). |
+| `workflows` | Manage stored workflows (21 subcommands): list, inspect, validate; run (with `--dry-run`), test, eval; export to MCP and write client configs; diff, rename, import, delete, apply-repair, relax, compose, prune; API adapter generation and checks; dataset, report, and flaky analytics. |
+| `sessions` | Log in once per application and reuse the persistent session profile. |
+| `secret` | List, set, and rotate `SECRET_*` references used by stored workflows. |
+| `replay` | Re-execute a recorded run with its original or overridden inputs. |
 
 Use `agentmesh <command> --help` for all flags. Complete command and API examples live in the
 [User Guide](docs/USER_GUIDE.md).
