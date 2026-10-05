@@ -89,9 +89,8 @@ agentmesh teach --target browser \
 
 What happens:
 
-1. A **visible** Chrome opens with the page. (`--headed` is required to
-   act with your own hands; without it the browser is headless and only an
-   automation via `--cdp-port` could interact).
+1. A **visible** Chrome opens with the page. Visible mode is the default;
+   use `--headless` only for unattended automation via `--cdp-port`.
 2. **Act as the user**: type something in the field (e.g. `beta`) and press **Go**.
    Every captured event appears in your terminal instantly, e.g.
    `recorded #3 ui.fill input textbox "Search" #q = "beta"`.

@@ -1,5 +1,12 @@
 //! Deterministic component assembly, readiness, and reverse-order shutdown.
 
+mod capability_runtime;
+
+pub use capability_runtime::{
+    CapabilityAttempt, CapabilityExecutionResult, CapabilityExecutor, CapabilityRuntimeConfig,
+    execute_capability,
+};
+
 use agentmesh_error::{AgentMeshError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

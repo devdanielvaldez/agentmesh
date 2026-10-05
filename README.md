@@ -388,6 +388,17 @@ the [User Guide](docs/USER_GUIDE.md).
 Teach any application to AI agents: demonstrate a task once, and AgentMesh turns it into a
 reusable, validated, policy-guarded capability.
 
+At the end of a recording or guided authoring session, Teach asks for explicit success checks
+(URL, visible text, or an element's presence/absence). When at least one check is supplied, saving
+the workflow also compiles a portable capability package into the learned namespace of the local
+catalog at `$AGENTMESH_HOME/capabilities/learned/` (or the platform AgentMesh data directory's
+`capabilities/learned/`).
+The package carries typed inputs/outputs, declared effects and permissions, recovery behavior,
+and success-evidence claims. This makes the package verifiable; it does not certify successful
+execution until a runtime returns matching evidence. Workflows without a success check remain
+usable as workflows but are not compiled into AMCP packages. Previous package revisions are retained outside the live
+catalog, and deleting or renaming a workflow removes its generated package from discovery.
+
 ```bash
 agentmesh teach --name whatsapp.read_messages   # guided workflow authoring
 agentmesh workflows list                        # stored capabilities
@@ -477,6 +488,23 @@ refreshes `catalog.json`/`routines.json`, which a running server reloads
 without restart; per-tool registrations added afterwards need a re-export.
 
 ## CLI reference
+
+Run `agentmesh` with no arguments in a terminal to open the interactive console.
+It provides a dashboard, capability catalog and dependency graph, workflow
+management, MCP integrations, saved browser login sessions, and diagnostics.
+From **Workflows & Teach**, press `t` and follow the prompts to choose a start
+URL, scope, and whether to use a temporary browser, reuse a saved login, or
+sign in and save a profile first. The **Login Sessions** page also lets you
+create login profiles. Use the number keys or arrow keys and Enter to navigate,
+`/` to search capabilities, Escape to go back, and `q` to quit. In
+non-interactive environments, pass an explicit command instead. Existing
+subcommands remain available for scripts and automation.
+
+From a workflow's detail page, press `m` to generate its MCP server, optionally
+install the server's npm dependencies, select a saved browser login if needed,
+and connect it to Claude Code (project or user scope), Claude Desktop, or another
+MCP client. JSON configuration files are backed up before updates; Claude
+Desktop must be restarted to load a changed local server configuration.
 
 | Command | Purpose |
 | --- | --- |

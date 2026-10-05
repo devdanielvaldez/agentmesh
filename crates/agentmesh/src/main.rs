@@ -19,6 +19,8 @@ use tokio::{net::TcpListener, signal};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+mod capability_cli;
+mod interactive;
 mod teach_flow;
 mod upgrade;
 
@@ -26,7 +28,7 @@ mod upgrade;
 #[command(name = "agentmesh", version, about = "The service mesh for AI tools")]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -127,9 +129,12 @@ enum Command {
         /// URL opened for a browser demonstration.
         #[arg(long)]
         start_url: Option<String>,
-        /// Show the recording browser window.
-        #[arg(long)]
+        /// Show the recording browser window (the default).
+        #[arg(long, conflicts_with = "headless")]
         headed: bool,
+        /// Record without showing the browser window.
+        #[arg(long)]
+        headless: bool,
         /// Record or run with a stored session profile.
         #[arg(long)]
         session: Option<String>,
@@ -147,6 +152,11 @@ enum Command {
     Workflows {
         #[command(subcommand)]
         action: WorkflowsAction,
+    },
+    /// Validates, inspects, searches, and installs portable capability packages.
+    Capabilities {
+        #[command(subcommand)]
+        action: CapabilityAction,
     },
     /// Manages persistent application sessions.
     Sessions {
@@ -487,22 +497,53 @@ enum SecretAction {
     },
 }
 
+/// Portable capability package operations.
+#[derive(Debug, Subcommand)]
+enum CapabilityAction {
+    /// Validates a capability package file.
+    Validate { file: PathBuf },
+    /// Prints a capability package and its integrity status.
+    Inspect { file: PathBuf },
+    /// Searches package files under a local catalog directory.
+    Search {
+        /// Catalog root containing capability YAML or JSON files.
+        catalog: PathBuf,
+        /// Natural-language intent or capability terms.
+        query: String,
+        /// Maximum matches to print.
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
+    },
+    /// Installs a validated package into a local catalog without overwriting.
+    Install {
+        file: PathBuf,
+        /// Catalog root to install into.
+        #[arg(long)]
+        catalog: PathBuf,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let command = match cli.command {
+        Some(command) => command,
+        None if std::io::stdin().is_terminal() => return interactive::run(),
+        None => anyhow::bail!("Interactive mode needs a terminal; pass --help to list commands."),
+    };
 
     // Passive update notice: a cache read on most runs, one <=2s network
     // query per day when stale, silent and throttled without network. No
     // check runs for `upgrade` itself; opt out with AGENTMESH_NO_UPDATE_CHECK.
     if std::env::var("AGENTMESH_NO_UPDATE_CHECK").is_err()
-        && !matches!(cli.command, Command::Upgrade { .. })
+        && !matches!(&command, Command::Upgrade { .. })
     {
         if let Some(notice) = upgrade::refresh_notice().await {
             eprintln!("{notice}");
         }
     }
 
-    match cli.command {
+    match command {
         Command::Serve { config } => serve(config).await,
         Command::ControlPlane {
             host,
@@ -526,6 +567,7 @@ async fn main() -> Result<()> {
         }
         Command::Diff { current, candidate } => diff(&current, &candidate),
         Command::Doctor { config } => doctor(&config),
+        Command::Capabilities { action } => capability_cli::run(action),
         teach @ (Command::Teach { .. }
         | Command::Workflows { .. }
         | Command::Sessions { .. }
@@ -795,6 +837,7 @@ fn dispatch_teach_mode(
     scope: Option<String>,
     start_url: Option<String>,
     headed: bool,
+    headless: bool,
     session: Option<String>,
     continue_from: Option<String>,
     cdp_port: Option<u16>,
@@ -805,7 +848,7 @@ fn dispatch_teach_mode(
             name,
             scope,
             start_url,
-            headed,
+            headed: headed || !headless,
             session,
             continue_from,
             cdp_port,
@@ -815,6 +858,7 @@ fn dispatch_teach_mode(
             if scope.is_some()
                 || start_url.is_some()
                 || headed
+                || headless
                 || session.is_some()
                 || continue_from.is_some()
                 || cdp_port.is_some()
@@ -901,6 +945,7 @@ fn dispatch_teach(command: Command) -> Result<()> {
             scope,
             start_url,
             headed,
+            headless,
             session,
             continue_from,
             cdp_port,
@@ -911,6 +956,7 @@ fn dispatch_teach(command: Command) -> Result<()> {
             scope,
             start_url,
             headed,
+            headless,
             session,
             continue_from,
             cdp_port,
@@ -1049,6 +1095,7 @@ fn teach_wizard(name: Option<String>) -> Result<()> {
         anyhow::bail!("a workflow needs at least one step");
     }
     let outputs = teach_wizard_outputs()?;
+    let success = teach_flow::prompt_success_assertions()?;
     let policy = teach_policy()?;
     let checkpoints = steps
         .iter()
@@ -1065,7 +1112,7 @@ fn teach_wizard(name: Option<String>) -> Result<()> {
         outputs,
         policy,
         preconditions: Vec::new(),
-        success: Vec::new(),
+        success,
         failure: Vec::new(),
         recovery: Some(agentmesh_teach::RecoveryPolicy {
             max_attempts: 2,
@@ -1083,6 +1130,14 @@ fn teach_wizard(name: Option<String>) -> Result<()> {
         workflow.steps.len(),
         path.display()
     );
+    if !workflow.success.is_empty() {
+        println!(
+            "Capability package with success evidence: {}",
+            agentmesh_teach::capability_package_path(&workflow.id, &workflow.version)?.display()
+        );
+    } else {
+        println!("No success checks defined; saved as a workflow, not a capability package.");
+    }
     Ok(())
 }
 

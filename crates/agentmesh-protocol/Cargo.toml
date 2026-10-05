@@ -11,7 +11,8 @@ repository.workspace = true
 agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
-

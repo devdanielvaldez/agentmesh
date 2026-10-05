@@ -8,6 +8,7 @@
 //! on-disk layout; capture, inference, execution, and compilation live in
 //! later milestones.
 
+mod capability_export;
 mod clients;
 mod infer;
 mod ir;
@@ -15,6 +16,7 @@ mod memory;
 mod store;
 mod trace;
 
+pub use capability_export::compile_workflow_capability;
 pub use clients::{
     McpClient, SUPPORTED_CLIENTS, client_config_json, export_server_name, resolve_client_profile,
 };
@@ -34,9 +36,9 @@ pub use memory::{
     rank_workflows, rank_workflows_weighted,
 };
 pub use store::{
-    WorkflowListError, WorkflowSummary, delete_workflow, delete_workflow_in, home_dir,
-    import_workflow_in, list_workflows, list_workflows_lenient, load_workflow, rename_workflow,
-    rename_workflow_in, save_workflow, workflows_dir,
+    WorkflowListError, WorkflowSummary, capabilities_dir, capability_package_path, delete_workflow,
+    delete_workflow_in, home_dir, import_workflow_in, list_workflows, list_workflows_lenient,
+    load_workflow, rename_workflow, rename_workflow_in, save_workflow, workflows_dir,
 };
 use thiserror::Error;
 pub use trace::{RecordedTarget, SemanticEvent, TraceKind, TraceValue, read_trace};

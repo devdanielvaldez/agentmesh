@@ -288,6 +288,66 @@ fn prompt_workflow_outputs(
     Ok(outputs)
 }
 
+/// Collects explicit postconditions for the learned capability contract.
+/// An empty list is allowed for legacy workflows, but those remain ordinary
+/// workflows and are not published as verified capability packages.
+pub(crate) fn prompt_success_assertions() -> Result<Vec<agentmesh_teach::WorkflowAssertion>> {
+    use agentmesh_teach::{Target, WorkflowAssertion};
+    println!("Add success checks; these become the capability's verification contract.");
+    println!("Supported: assert.url, assert.text, assert.exists, assert.not_exists.");
+    let mut assertions = Vec::new();
+    loop {
+        let op = teach_prompt("Success check (empty to finish)")?;
+        if op.is_empty() {
+            break;
+        }
+        let assertion = match op.as_str() {
+            "assert.url" => {
+                let value = teach_prompt("Expected URL or URL fragment")?;
+                WorkflowAssertion {
+                    op,
+                    target: None,
+                    value: Some(value),
+                    url: None,
+                    timeout_ms: None,
+                }
+            }
+            "assert.text" => {
+                let value = teach_prompt("Expected visible text")?;
+                WorkflowAssertion {
+                    op,
+                    target: None,
+                    value: Some(value),
+                    url: None,
+                    timeout_ms: None,
+                }
+            }
+            "assert.exists" | "assert.not_exists" => {
+                let semantic = teach_prompt("Element semantic name (e.g. receipt_download)")?;
+                let role = teach_prompt("Element role (optional, e.g. button)")?;
+                let accessible_name = teach_prompt("Accessible name (optional)")?;
+                WorkflowAssertion {
+                    op,
+                    target: Some(Target {
+                        semantic: (!semantic.is_empty()).then_some(semantic),
+                        role: (!role.is_empty()).then_some(role),
+                        accessible_name: (!accessible_name.is_empty()).then_some(accessible_name),
+                        ..Target::default()
+                    }),
+                    value: None,
+                    url: None,
+                    timeout_ms: None,
+                }
+            }
+            other => anyhow::bail!(
+                "unsupported success check {other:?}; use assert.url, assert.text, assert.exists, or assert.not_exists"
+            ),
+        };
+        assertions.push(assertion);
+    }
+    Ok(assertions)
+}
+
 /// Confirms the inferred parameters and outputs, then saves the workflow.
 fn save_draft(id: &str, draft: &agentmesh_teach::InferredDraft) -> Result<()> {
     let inputs = collect_draft_inputs(draft)?;
@@ -299,6 +359,7 @@ fn save_draft(id: &str, draft: &agentmesh_teach::InferredDraft) -> Result<()> {
     let description = teach_prompt("Description (optional)")?;
     let runtime = teach_prompt_default("Preferred runtime", "browser")?;
     let outputs = prompt_workflow_outputs(&steps)?;
+    let success = prompt_success_assertions()?;
     let policy = crate::teach_policy()?;
     let checkpoints = steps
         .iter()
@@ -315,7 +376,7 @@ fn save_draft(id: &str, draft: &agentmesh_teach::InferredDraft) -> Result<()> {
         outputs,
         policy,
         preconditions: Vec::new(),
-        success: Vec::new(),
+        success,
         failure: Vec::new(),
         recovery: Some(agentmesh_teach::RecoveryPolicy {
             max_attempts: 2,
@@ -336,6 +397,16 @@ fn save_draft(id: &str, draft: &agentmesh_teach::InferredDraft) -> Result<()> {
         workflow.steps.len(),
         path.display()
     );
+    if !workflow.success.is_empty() {
+        println!(
+            "✓ Capability package with success evidence: {}",
+            agentmesh_teach::capability_package_path(&workflow.id, &workflow.version)?.display()
+        );
+    } else {
+        println!(
+            "Note: no success checks were defined; saved as a workflow, not a capability package."
+        );
+    }
     store_secret_values(&home, &secrets)?;
     Ok(())
 }

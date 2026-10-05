@@ -11,7 +11,10 @@ repository.workspace = true
 agentmesh-authn = { path = "../agentmesh-authn", version = "0.3.1" }
 agentmesh-authz = { path = "../agentmesh-authz", version = "0.3.1" }
 agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
+agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.3.1" }
 agentmesh-registry = { path = "../agentmesh-registry", version = "0.3.1" }
+serde_json.workspace = true
+sha2.workspace = true
 serde.workspace = true
 uuid.workspace = true
 

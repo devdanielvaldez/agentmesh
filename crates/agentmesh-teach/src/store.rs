@@ -118,6 +118,34 @@ pub fn save_workflow(workflow: &Workflow) -> Result<PathBuf, TeachError> {
     save_workflow_in(workflow, &workflows_dir()?)
 }
 
+/// Directory containing locally learned portable capability packages.
+///
+/// The directory is a sibling of `workflows/`, so it is discoverable by the
+/// default AgentMesh capability catalog.
+pub fn capabilities_dir() -> Result<PathBuf, TeachError> {
+    let home = home_dir().ok_or_else(|| {
+        TeachError::Storage(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no home directory; set AGENTMESH_HOME",
+        ))
+    })?;
+    let dir = home.join("capabilities");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Returns the deterministic live-catalog path for a workflow-derived
+/// capability package.
+pub fn capability_package_path(id: &str, version: &str) -> Result<PathBuf, TeachError> {
+    let mut path = capabilities_dir()?;
+    path.push("learned");
+    for segment in id.split('.') {
+        path.push(segment);
+    }
+    path.push(format!("{version}.yaml"));
+    Ok(path)
+}
+
 /// Saves a workflow under an explicit home (used by tests).
 ///
 /// A previous revision is snapshotted under `<dir>/revisions/` before it is
@@ -129,7 +157,22 @@ pub fn save_workflow(workflow: &Workflow) -> Result<PathBuf, TeachError> {
 /// Returns [`TeachError`] when the workflow is invalid or cannot be written.
 pub fn save_workflow_in(workflow: &Workflow, dir: &std::path::Path) -> Result<PathBuf, TeachError> {
     crate::validate_workflow(workflow)?;
+    // A workflow becomes a portable capability only once it has an explicit
+    // postcondition. Prepare that package before changing the workflow file,
+    // so a contract-generation error cannot leave a half-updated definition.
+    let package = if workflow.success.is_empty() {
+        None
+    } else {
+        Some(
+            crate::compile_workflow_capability(workflow).map_err(|error| {
+                TeachError::Validation(format!("capability package generation failed: {error}"))
+            })?,
+        )
+    };
     let path = dir.join(format!("{}.yaml", workflow.id));
+    let previous_workflow = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|document| crate::parse_workflow(&document).ok());
     if path.is_file() {
         let revisions = dir.join("revisions");
         std::fs::create_dir_all(&revisions)?;
@@ -143,6 +186,34 @@ pub fn save_workflow_in(workflow: &Workflow, dir: &std::path::Path) -> Result<Pa
     }
     let document = serde_yaml::to_string(workflow).map_err(TeachError::Parse)?;
     std::fs::write(&path, document)?;
+    if let Some(package) = package {
+        let home = dir.parent().unwrap_or(dir);
+        let mut package_path = home.join("capabilities").join("learned");
+        for segment in workflow.id.split('.') {
+            package_path.push(segment);
+        }
+        package_path.push(format!("{}.yaml", workflow.version));
+        let parent = package_path.parent().expect("package path has a parent");
+        std::fs::create_dir_all(parent)?;
+        if package_path.is_file() {
+            // Keep historical packages outside the live catalog tree so
+            // catalog discovery cannot accidentally offer stale revisions.
+            let mut revisions = home.join("capability-revisions").join("learned");
+            for segment in workflow.id.split('.') {
+                revisions.push(segment);
+            }
+            std::fs::create_dir_all(&revisions)?;
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or_else(|_| "0".to_string(), |elapsed| elapsed.as_secs().to_string());
+            let previous = revisions.join(format!("{}.{}.yaml", workflow.version, stamp));
+            let _ = std::fs::copy(&package_path, previous);
+        }
+        let package_document = serde_yaml::to_string(&package).map_err(TeachError::Parse)?;
+        std::fs::write(package_path, package_document)?;
+    } else if let Some(previous) = previous_workflow {
+        remove_generated_package(&previous.id, &previous.version, dir.parent().unwrap_or(dir))?;
+    }
     Ok(path)
 }
 
@@ -161,10 +232,16 @@ pub fn delete_workflow_in(id: &str, dir: &std::path::Path) -> Result<PathBuf, Te
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or_else(|_| "0".to_string(), |elapsed| elapsed.as_secs().to_string());
+    let previous_workflow = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|document| crate::parse_workflow(&document).ok());
     if let Ok(previous) = std::fs::read(&path) {
         let _ = std::fs::write(revisions.join(format!("{id}.{stamp}.yaml")), previous);
     }
     std::fs::remove_file(&path)?;
+    if let Some(workflow) = previous_workflow {
+        remove_generated_package(&workflow.id, &workflow.version, dir.parent().unwrap_or(dir))?;
+    }
     Ok(path)
 }
 
@@ -195,7 +272,47 @@ pub fn rename_workflow_in(
     }
     save_workflow_in(&workflow, dir)?;
     std::fs::remove_file(&source)?;
+    if let Ok(previous) = crate::parse_workflow(&document) {
+        remove_generated_package(&previous.id, &previous.version, dir.parent().unwrap_or(dir))?;
+    }
     Ok(destination)
+}
+
+fn remove_generated_package(
+    id: &str,
+    version: &str,
+    home: &std::path::Path,
+) -> Result<(), TeachError> {
+    let mut package_path = home.join("capabilities").join("learned");
+    for segment in id.split('.') {
+        package_path.push(segment);
+    }
+    package_path.push(format!("{version}.yaml"));
+    let Ok(document) = std::fs::read_to_string(&package_path) else {
+        return Ok(());
+    };
+    let Ok(package) = serde_yaml::from_str::<agentmesh_protocol::CapabilityPackage>(&document)
+    else {
+        return Ok(());
+    };
+    let generated_here = package.implementations.iter().any(|binding| {
+        binding.kind == agentmesh_protocol::ImplementationKind::AgentmeshWorkflow
+            && binding.reference == format!("workflow://{id}")
+    });
+    if generated_here {
+        let mut revisions = home.join("capability-revisions").join("learned");
+        for segment in id.split('.') {
+            revisions.push(segment);
+        }
+        std::fs::create_dir_all(&revisions)?;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or_else(|_| "0".to_string(), |elapsed| elapsed.as_secs().to_string());
+        let archived = revisions.join(format!("{version}.{stamp}.yaml"));
+        let _ = std::fs::copy(&package_path, archived);
+        std::fs::remove_file(package_path)?;
+    }
+    Ok(())
 }
 
 /// Imports a workflow document from an arbitrary file into the store,
@@ -354,7 +471,7 @@ pub fn list_workflows_in(dir: &std::path::Path) -> Result<Vec<WorkflowSummary>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{InputDef, InputType, Step};
+    use crate::{InputDef, InputType, Step, WorkflowAssertion};
     use std::collections::BTreeMap;
     use std::ffi::OsStr;
 
@@ -459,6 +576,39 @@ mod tests {
         let ids: Vec<_> = listed.iter().map(|summary| summary.id.clone()).collect();
         assert_eq!(ids, vec!["app.alpha", "app.beta"]);
         assert_eq!(listed[0].steps, 1);
+    }
+
+    #[test]
+    fn verified_workflow_is_published_and_removed_from_live_catalog_on_delete() {
+        let home = tempfile::tempdir().expect("temp home");
+        let dir = workflows_dir_in(home.path()).expect("workflows dir");
+        let mut workflow = sample("app.receipt");
+        workflow.success.push(WorkflowAssertion {
+            op: "assert.url".into(),
+            target: None,
+            value: Some("/receipts/".into()),
+            url: None,
+            timeout_ms: None,
+        });
+
+        save_workflow_in(&workflow, &dir).expect("save verified workflow");
+        let package_path = home
+            .path()
+            .join("capabilities/learned/app/receipt/1.0.yaml");
+        let package: agentmesh_protocol::CapabilityPackage = serde_yaml::from_str(
+            &std::fs::read_to_string(&package_path).expect("generated capability package"),
+        )
+        .expect("valid generated package");
+        assert_eq!(package.capability.id, "app.receipt");
+        assert_eq!(package.contract.success_evidence.len(), 1);
+
+        delete_workflow_in("app.receipt", &dir).expect("delete workflow");
+        assert!(!package_path.exists());
+        assert!(
+            home.path()
+                .join("capability-revisions/learned/app/receipt")
+                .is_dir()
+        );
     }
 
     #[test]
