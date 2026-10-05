@@ -1,13 +1,19 @@
 //! Protocol conformance and defensive-decoding tests.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use agentmesh_error::ErrorCode;
 use agentmesh_protocol::{
-    CapabilitySet, DiscoverResult, DiscoverResultType, Implementation, JsonRpcErrorObject,
-    JsonRpcMessage, JsonRpcResponse, McpMethod, McpName, ProtocolEra, ProtocolLimits,
-    ProtocolVersion, RequestId, RequestMeta, ResultMeta, SupportedVersions, decode_message,
-    negotiate_version,
+    ApprovalCheckpoint, AuthorityRequirements, CAPABILITY_PACKAGE_VERSION, CapabilityContract,
+    CapabilityDefinition, CapabilityNegotiationRequest, CapabilityPackage, CapabilityRequirement,
+    CapabilitySet, CertificationCheck, CertificationLevel, CertificationReport, DiscoverResult,
+    DiscoverResultType, EffectKind, EvidenceClaim, EvidenceType, ExecutionEvidence,
+    ExecutionReceipt, ExecutionStatus, Idempotency, Implementation, ImplementationBinding,
+    ImplementationKind, JsonRpcErrorObject, JsonRpcMessage, JsonRpcResponse, McpMethod, McpName,
+    ProtocolEra, ProtocolLimits, ProtocolVersion, RecoveryAction, RecoveryContext,
+    RecoveryStrategy, RequestId, RequestMeta, ResultMeta, SupportedVersions, decide_recovery,
+    decode_message, discover_capabilities, evaluate_certification, negotiate_capability_offer,
+    negotiate_version, resolve_capability_plan, select_implementation, verify_execution_receipt,
 };
 use serde_json::json;
 
@@ -204,4 +210,284 @@ fn request_metadata_uses_reserved_wire_keys() {
             .get("io.modelcontextprotocol/clientCapabilities")
             .is_some()
     );
+}
+
+fn refund_package() -> CapabilityPackage {
+    CapabilityPackage {
+        schema_version: CAPABILITY_PACKAGE_VERSION.into(),
+        capability: CapabilityDefinition {
+            id: "billing.refund".into(),
+            version: "1.0.0".into(),
+            intent: "Refund an eligible customer payment".into(),
+        },
+        contract: CapabilityContract {
+            requires: vec![CapabilityRequirement {
+                id: "customer.lookup".into(),
+                version: Some("1.0.0".into()),
+            }],
+            inputs: json!({"type":"object", "required":["payment_id"]}),
+            outputs: json!({"type":"object", "required":["refund_id"]}),
+            success_evidence: vec![EvidenceClaim {
+                id: "payment_refunded".into(),
+                assertion: "payment.status == refunded".into(),
+                accepted_types: vec![EvidenceType::ProviderReceipt, EvidenceType::StateAssertion],
+            }],
+            effects: vec![EffectKind::Financial, EffectKind::ExternalCommunication],
+            idempotency: Idempotency::KeyRequired,
+            recovery: RecoveryStrategy::Reconcile,
+        },
+        authority: AuthorityRequirements {
+            permissions: vec!["customer.read".into(), "payment.refund".into()],
+            approvals: vec![ApprovalCheckpoint {
+                before: "execute_refund".into(),
+                display: vec!["amount".into(), "customer".into()],
+                required_role: Some("finance_approver".into()),
+            }],
+            constraints: BTreeMap::new(),
+        },
+        implementations: vec![ImplementationBinding {
+            id: "stripe-api".into(),
+            kind: ImplementationKind::Mcp,
+            reference: "mcp://stripe/refund".into(),
+            configuration: BTreeMap::new(),
+        }],
+        provenance: None,
+        extensions: BTreeMap::new(),
+    }
+}
+
+#[test]
+fn validates_portable_capability_package() {
+    let package = refund_package();
+    package.validate().expect("valid portable contract");
+
+    let value = serde_json::to_value(package).expect("serialize capability package");
+    assert_eq!(value["schemaVersion"], "amcp/0.1");
+    assert_eq!(value["contract"]["effects"][0], "financial");
+    assert_eq!(value["implementations"][0]["kind"], "mcp");
+}
+
+#[test]
+fn package_content_digest_detects_contract_tampering() {
+    let mut package = refund_package();
+    package.provenance = Some(agentmesh_protocol::Provenance {
+        publisher: "agentmesh.example".into(),
+        package_digest: String::new(),
+        source: agentmesh_protocol::ProvenanceSource::Authored,
+        signature: None,
+    });
+    let digest = package.content_digest().expect("canonical digest");
+    package.provenance.as_mut().unwrap().package_digest = digest;
+    assert!(package.validate().is_ok());
+    assert!(package.verify_content_digest());
+
+    package.capability.intent = "Changed after signing".into();
+    assert!(!package.verify_content_digest());
+}
+
+#[test]
+fn certification_level_requires_matching_digest_and_complete_checks() {
+    let mut package = refund_package();
+    package.provenance = Some(agentmesh_protocol::Provenance {
+        publisher: "publisher.example".into(),
+        package_digest: String::new(),
+        source: agentmesh_protocol::ProvenanceSource::Authored,
+        signature: None,
+    });
+    let digest = package.content_digest().unwrap();
+    package.provenance.as_mut().unwrap().package_digest = digest.clone();
+    let report = CertificationReport {
+        capability_id: package.capability.id.clone(),
+        capability_version: package.capability.version.clone(),
+        package_digest: digest,
+        reviewed_by: Some("reviewer@example.com".into()),
+        checks: BTreeMap::from([(
+            "contract".into(),
+            CertificationCheck {
+                passed: true,
+                evidence_reference: "test-run-1".into(),
+            },
+        )]),
+    };
+    let decision = evaluate_certification(&package, &report);
+    assert_eq!(decision.level, CertificationLevel::Reviewed);
+    assert!(decision.missing_requirements.contains("policy"));
+}
+
+#[test]
+fn rejects_ambiguous_or_unsafe_capability_packages() {
+    let mut package = refund_package();
+    package.capability.id = "Refund".into();
+    assert!(package.validate().is_err());
+
+    let mut package = refund_package();
+    package.contract.success_evidence.clear();
+    assert!(package.validate().is_err());
+
+    let mut package = refund_package();
+    package.authority.permissions.push("payment.refund".into());
+    assert!(package.validate().is_err());
+
+    let mut package = refund_package();
+    package.implementations[0].reference.clear();
+    assert!(package.validate().is_err());
+}
+
+#[test]
+fn verifies_receipts_against_declared_success_evidence() {
+    let package = refund_package();
+    let mut receipt = ExecutionReceipt {
+        execution_id: "exec_123".into(),
+        capability_id: "billing.refund".into(),
+        capability_version: "1.0.0".into(),
+        implementation_id: "stripe-api".into(),
+        status: ExecutionStatus::Verified,
+        evidence: vec![ExecutionEvidence {
+            claim_id: "payment_refunded".into(),
+            evidence_type: EvidenceType::ProviderReceipt,
+            reference: "re_123".into(),
+            digest: None,
+        }],
+        policy_decisions: vec!["approval.approved".into()],
+        package_digest: None,
+        extensions: BTreeMap::new(),
+    };
+    assert!(verify_execution_receipt(&package, &receipt).verified);
+
+    receipt.evidence[0].evidence_type = EvidenceType::HumanAttestation;
+    let verification = verify_execution_receipt(&package, &receipt);
+    assert!(!verification.verified);
+    assert!(verification.missing_claims.contains("payment_refunded"));
+}
+
+#[test]
+fn resolves_composed_capabilities_in_dependency_first_order() {
+    let mut root = refund_package();
+    let mut dependency = refund_package();
+    dependency.capability.id = "customer.lookup".into();
+    dependency.contract.requires.clear();
+    root.contract.requires = vec![CapabilityRequirement {
+        id: "customer.lookup".into(),
+        version: Some("1.0.0".into()),
+    }];
+
+    let catalog = [root, dependency];
+    let plan =
+        resolve_capability_plan("billing.refund", &catalog).expect("resolvable capability graph");
+    assert_eq!(plan[0].capability.id, "customer.lookup");
+    assert_eq!(plan[1].capability.id, "billing.refund");
+}
+
+#[test]
+fn discovers_capabilities_by_intent_and_ranks_direct_id_matches_first() {
+    let mut refund = refund_package();
+    refund.contract.requires.clear();
+    let mut lookup = refund_package();
+    lookup.capability.id = "customer.lookup".into();
+    lookup.capability.intent = "Find a customer record".into();
+    lookup.contract.requires.clear();
+    let catalog = [lookup, refund];
+
+    let results = discover_capabilities("refund customer payment", &catalog, 10);
+    assert_eq!(results[0].package.capability.id, "billing.refund");
+    assert!(results[0].matched_terms.contains(&"refund".into()));
+    assert!(discover_capabilities("   ", &catalog, 10).is_empty());
+}
+
+#[test]
+fn selects_only_available_bindings_in_runtime_preference_order() {
+    let package = refund_package();
+    let available = BTreeSet::from(["stripe-api".to_owned()]);
+    let binding = select_implementation(
+        &package,
+        &available,
+        &[
+            ImplementationKind::AgentmeshWorkflow,
+            ImplementationKind::Mcp,
+        ],
+    )
+    .expect("available MCP binding");
+    assert_eq!(binding.id, "stripe-api");
+
+    assert!(select_implementation(&package, &BTreeSet::new(), &[ImplementationKind::Mcp]).is_err());
+}
+
+#[test]
+fn recovery_reconciles_unknown_state_and_gates_retries_by_idempotency() {
+    let mut package = refund_package();
+    package.contract.recovery = RecoveryStrategy::Retry;
+    let decision = decide_recovery(
+        &package,
+        ExecutionStatus::Failed,
+        RecoveryContext {
+            attempts_used: 1,
+            maximum_attempts: 3,
+            idempotency_key_available: true,
+            external_state_unknown: true,
+            compensation_available: false,
+        },
+    );
+    assert_eq!(decision.action, RecoveryAction::Reconcile);
+
+    let decision = decide_recovery(
+        &package,
+        ExecutionStatus::Failed,
+        RecoveryContext {
+            attempts_used: 1,
+            maximum_attempts: 3,
+            idempotency_key_available: true,
+            external_state_unknown: false,
+            compensation_available: false,
+        },
+    );
+    assert_eq!(decision.action, RecoveryAction::Retry);
+
+    let decision = decide_recovery(
+        &package,
+        ExecutionStatus::Failed,
+        RecoveryContext {
+            attempts_used: 1,
+            maximum_attempts: 3,
+            idempotency_key_available: false,
+            external_state_unknown: false,
+            compensation_available: false,
+        },
+    );
+    assert_eq!(decision.action, RecoveryAction::Reconcile);
+
+    let decision = decide_recovery(
+        &package,
+        ExecutionStatus::Failed,
+        RecoveryContext {
+            attempts_used: 1,
+            maximum_attempts: 3,
+            idempotency_key_available: true,
+            external_state_unknown: false,
+            compensation_available: false,
+        },
+    );
+    assert_eq!(decision.action, RecoveryAction::Retry);
+}
+
+#[test]
+fn agents_negotiate_a_concrete_offer_with_effect_and_authority_constraints() {
+    let package = refund_package();
+    let request = CapabilityNegotiationRequest {
+        capability_id: "billing.refund".into(),
+        version: Some("1.0.0".into()),
+        accepted_effects: BTreeSet::from([
+            EffectKind::Financial,
+            EffectKind::ExternalCommunication,
+        ]),
+        granted_permissions: BTreeSet::from(["customer.read".into(), "payment.refund".into()]),
+        available_bindings: BTreeSet::from(["stripe-api".into()]),
+        preferred_kinds: vec![ImplementationKind::Mcp],
+    };
+    let offer = negotiate_capability_offer(&request, &[package.clone()]).expect("compatible offer");
+    assert_eq!(offer.capability_id, "billing.refund");
+    assert_eq!(offer.implementation.id, "stripe-api");
+
+    let mut restricted = request;
+    restricted.accepted_effects.clear();
+    assert!(negotiate_capability_offer(&restricted, &[package]).is_err());
 }

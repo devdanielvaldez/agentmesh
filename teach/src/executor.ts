@@ -53,8 +53,6 @@ const WRITE_OPS = new Set([
   "ui.select",
   "ui.drag",
   "ui.drop",
-  "ui.focus",
-  "ui.scroll",
   "file.choose",
   "file.upload",
   "file.download",
@@ -983,13 +981,17 @@ async function main(): Promise<void> {
   let currentPage = initialPage;
   audit({ event: "run.started", workflow: workflow.id });
 
-  const confirmWrite = (step: IrStep): void => {
+  const confirmWrite = async (step: IrStep): Promise<void> => {
     if (yes || dryRun) return;
     if (!process.stdin.isTTY) {
       throw new Error(`POLICY_DENIED: step "${step.id}" writes; rerun with --yes`);
     }
     process.stderr.write(`Step "${step.id}" (${step.op}) performs a write. Continue? [y/N] `);
-    const answer = (process.stdin.read() as Buffer | null)?.toString().trim().toLowerCase();
+    const answer = await new Promise<string>((resolve) => {
+      process.stdin.once("data", (chunk: Buffer | string) => {
+        resolve(chunk.toString().trim().toLowerCase());
+      });
+    });
     if (answer !== "y" && answer !== "yes") {
       throw new Error("POLICY_DENIED: write not confirmed");
     }
@@ -1009,7 +1011,7 @@ async function main(): Promise<void> {
       audit({ event: "step.started", step: step.id, op: step.op });
       process.stderr.write(`[${done + 1}/${total}] ${step.op} ${step.id}\n`);
       if (WRITE_OPS.has(step.op)) {
-        confirmWrite(step);
+        await confirmWrite(step);
       }
       if (observe) {
         const path = await captureAria(currentPage, artifactDir, `${done + 1}-${step.id}-before`, inputs, audit);

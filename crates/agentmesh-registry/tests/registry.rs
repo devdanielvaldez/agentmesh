@@ -2,9 +2,15 @@
 
 use agentmesh_core::Transport;
 use agentmesh_error::ErrorCode;
+use agentmesh_protocol::{
+    CAPABILITY_PACKAGE_VERSION, CapabilityContract, CapabilityDefinition, CapabilityPackage,
+    EvidenceClaim, EvidenceType, Idempotency, ImplementationBinding, ImplementationKind,
+    RecoveryStrategy,
+};
 use agentmesh_registry::{
-    Capability, CapabilityKind, Endpoint, EndpointId, EndpointLifecycle, InMemoryRegistry,
-    RegisteredService, Registry, RegistryRevision, RegistryScope, ServiceLifecycle, SqliteRegistry,
+    Capability, CapabilityCatalog, CapabilityKind, CapabilityWriteCondition, Endpoint, EndpointId,
+    EndpointLifecycle, InMemoryCapabilityCatalog, InMemoryRegistry, RegisteredService, Registry,
+    RegistryRevision, RegistryScope, ServiceLifecycle, SqliteCapabilityCatalog, SqliteRegistry,
     WriteCondition,
 };
 use serde_json::json;
@@ -32,6 +38,98 @@ fn service(scope: RegistryScope, name: &str) -> RegisteredService {
         integrity: Some("sha256:abc123".into()),
     });
     service
+}
+
+fn capability_package() -> CapabilityPackage {
+    CapabilityPackage {
+        schema_version: CAPABILITY_PACKAGE_VERSION.into(),
+        capability: CapabilityDefinition {
+            id: "weather.current".into(),
+            version: "1.0.0".into(),
+            intent: "Read current weather".into(),
+        },
+        contract: CapabilityContract {
+            requires: Vec::new(),
+            inputs: json!({"type":"object"}),
+            outputs: json!({"type":"object"}),
+            success_evidence: vec![EvidenceClaim {
+                id: "weather_returned".into(),
+                assertion: "weather result is present".into(),
+                accepted_types: vec![EvidenceType::StateAssertion],
+            }],
+            effects: vec![agentmesh_protocol::EffectKind::ReadOnly],
+            idempotency: Idempotency::Guaranteed,
+            recovery: RecoveryStrategy::Retry,
+        },
+        authority: Default::default(),
+        implementations: vec![ImplementationBinding {
+            id: "weather-mcp".into(),
+            kind: ImplementationKind::Mcp,
+            reference: "mcp://weather/current".into(),
+            configuration: Default::default(),
+        }],
+        provenance: None,
+        extensions: Default::default(),
+    }
+}
+
+#[test]
+fn capability_catalog_enforces_tenant_scope_and_optimistic_revisions() {
+    let catalog = InMemoryCapabilityCatalog::new();
+    let production = scope("production");
+    let created = catalog
+        .publish(
+            production.clone(),
+            capability_package(),
+            CapabilityWriteCondition::Create,
+        )
+        .expect("publish package");
+    assert_eq!(created.revision, RegistryRevision::new(1));
+    assert!(
+        catalog
+            .get(&scope("staging"), "weather.current", "1.0.0")
+            .expect("tenant lookup")
+            .is_none()
+    );
+
+    let duplicate = catalog
+        .publish(
+            production.clone(),
+            capability_package(),
+            CapabilityWriteCondition::Create,
+        )
+        .expect_err("duplicate package version");
+    assert_eq!(duplicate.code(), ErrorCode::Conflict);
+
+    let revision = catalog
+        .revoke(&production, "weather.current", "1.0.0", created.revision)
+        .expect("revoke package");
+    assert_eq!(revision, RegistryRevision::new(2));
+}
+
+#[test]
+fn sqlite_capability_catalog_persists_revisioned_packages() {
+    let directory = tempfile::tempdir().expect("temporary catalog directory");
+    let path = directory.path().join("capabilities.sqlite");
+    let scope = scope("production");
+    let first = SqliteCapabilityCatalog::open(&path).expect("open catalog");
+    let published = first
+        .publish(
+            scope.clone(),
+            capability_package(),
+            CapabilityWriteCondition::Create,
+        )
+        .expect("publish capability");
+    drop(first);
+
+    let reopened = SqliteCapabilityCatalog::open(&path).expect("reopen catalog");
+    let snapshot = reopened.snapshot(&scope).expect("snapshot");
+    assert_eq!(snapshot.revision, published.revision);
+    assert_eq!(snapshot.capabilities.len(), 1);
+    assert_eq!(
+        snapshot.capabilities[0].package.capability.id,
+        "weather.current"
+    );
 }
 
 fn assert_backend_contract(registry: &dyn Registry) {

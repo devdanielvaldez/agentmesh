@@ -8,8 +8,11 @@ use std::{
 use agentmesh_authn::{AuthenticatedPrincipal, AuthenticationStrength};
 use agentmesh_authz::{Action, Resource};
 use agentmesh_error::{AgentMeshError, ErrorCode};
+use agentmesh_protocol::{CapabilityPackage, EffectKind};
 use agentmesh_registry::RegistryScope;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// Maximum rules in one compiled bundle.
@@ -29,6 +32,229 @@ pub enum Risk {
     High,
     /// Destructive or privileged action.
     Critical,
+}
+
+/// Derives a conservative policy risk from declared capability effects.
+///
+/// An undeclared effect set is critical: a runtime must not assume an unknown
+/// capability is read-only.
+pub fn capability_risk(package: &CapabilityPackage) -> Risk {
+    let effects = &package.contract.effects;
+    if effects.is_empty()
+        || effects
+            .iter()
+            .any(|effect| matches!(effect, EffectKind::Destructive | EffectKind::Irreversible))
+    {
+        Risk::Critical
+    } else if effects.iter().any(|effect| {
+        matches!(
+            effect,
+            EffectKind::Financial | EffectKind::CredentialAccess | EffectKind::NetworkEgress
+        )
+    }) {
+        Risk::High
+    } else if effects.iter().any(|effect| {
+        matches!(
+            effect,
+            EffectKind::DataWrite | EffectKind::ExternalCommunication
+        )
+    }) {
+        Risk::Medium
+    } else {
+        Risk::Low
+    }
+}
+
+/// Static admission policy for a portable capability package.
+///
+/// This check runs before implementation selection or tool execution. It is
+/// separate from request-time RBAC, which is evaluated later by
+/// [`PolicyBundle`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityAdmissionPolicy {
+    /// Effects permitted in this deployment.
+    pub allowed_effects: BTreeSet<EffectKind>,
+    /// Portable permissions delegated to this deployment.
+    pub granted_permissions: BTreeSet<String>,
+    /// Highest admitted effect-derived risk.
+    pub maximum_risk: Risk,
+    /// Risk level at which an approval is always required.
+    pub approval_at_or_above: Risk,
+    /// Whether packages without provenance must be rejected.
+    pub require_provenance: bool,
+}
+
+impl Default for CapabilityAdmissionPolicy {
+    fn default() -> Self {
+        Self {
+            allowed_effects: BTreeSet::from([EffectKind::ReadOnly]),
+            granted_permissions: BTreeSet::new(),
+            maximum_risk: Risk::Low,
+            approval_at_or_above: Risk::Medium,
+            require_provenance: true,
+        }
+    }
+}
+
+/// Result of pre-execution capability admission.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityAdmissionDecision {
+    /// Whether execution may proceed, be denied, or await approval.
+    pub effect: PolicyEffect,
+    /// Derived capability risk used to make the decision.
+    pub risk: Risk,
+    /// Stable machine-readable explanation.
+    pub reason: String,
+}
+
+/// External cryptographic verifier for package publisher signatures.
+///
+/// Implementations own key discovery, key rotation, revocation, and the chosen
+/// signature algorithm. The verifier receives the already recomputed content
+/// digest so signature checks bind the exact loaded package.
+pub trait PackageSignatureVerifier: Send + Sync {
+    /// Verifies a signature made by `publisher` over `content_digest`.
+    fn verify(&self, publisher: &str, content_digest: &str, signature: &str) -> bool;
+}
+
+/// Publisher admission rules applied after package integrity validation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CapabilityTrustPolicy {
+    /// Exact approved publisher IDs; empty means any publisher can be evaluated.
+    pub trusted_publishers: BTreeSet<String>,
+    /// Whether every admitted package must carry a verifiable signature.
+    pub require_signature: bool,
+}
+
+/// Result of package publisher trust evaluation, separate from execution policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityTrustDecision {
+    /// Whether provenance and publisher signature satisfy trust policy.
+    pub trusted: bool,
+    /// Stable machine-readable explanation.
+    pub reason: String,
+}
+
+/// Verifies publisher identity, package integrity, and any declared signature.
+pub fn verify_capability_trust(
+    package: &CapabilityPackage,
+    policy: &CapabilityTrustPolicy,
+    verifier: &dyn PackageSignatureVerifier,
+) -> CapabilityTrustDecision {
+    let Some(provenance) = &package.provenance else {
+        return CapabilityTrustDecision {
+            trusted: false,
+            reason: "provenance_required".into(),
+        };
+    };
+    if package.validate().is_err() || !package.verify_content_digest() {
+        return CapabilityTrustDecision {
+            trusted: false,
+            reason: "package_digest_mismatch".into(),
+        };
+    }
+    if !policy.trusted_publishers.is_empty()
+        && !policy.trusted_publishers.contains(&provenance.publisher)
+    {
+        return CapabilityTrustDecision {
+            trusted: false,
+            reason: "publisher_not_trusted".into(),
+        };
+    }
+    match provenance.signature.as_deref() {
+        Some(signature)
+            if verifier.verify(&provenance.publisher, &provenance.package_digest, signature) =>
+        {
+            CapabilityTrustDecision {
+                trusted: true,
+                reason: "publisher_signature_verified".into(),
+            }
+        }
+        Some(_) => CapabilityTrustDecision {
+            trusted: false,
+            reason: "publisher_signature_invalid".into(),
+        },
+        None if policy.require_signature => CapabilityTrustDecision {
+            trusted: false,
+            reason: "publisher_signature_required".into(),
+        },
+        None => CapabilityTrustDecision {
+            trusted: true,
+            reason: "publisher_signature_not_required".into(),
+        },
+    }
+}
+
+/// Evaluates a capability declaration before any provider is invoked.
+pub fn admit_capability(
+    package: &CapabilityPackage,
+    policy: &CapabilityAdmissionPolicy,
+) -> CapabilityAdmissionDecision {
+    let risk = capability_risk(package);
+    if package.validate().is_err() {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::Deny,
+            risk,
+            reason: "invalid_capability_package".into(),
+        };
+    }
+    if policy.require_provenance && package.provenance.is_none() {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::Deny,
+            risk,
+            reason: "provenance_required".into(),
+        };
+    }
+    if package.provenance.is_some() && !package.verify_content_digest() {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::Deny,
+            risk,
+            reason: "package_digest_mismatch".into(),
+        };
+    }
+    if package
+        .contract
+        .effects
+        .iter()
+        .any(|effect| !policy.allowed_effects.contains(effect))
+    {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::Deny,
+            risk,
+            reason: "effect_not_allowed".into(),
+        };
+    }
+    if package
+        .authority
+        .permissions
+        .iter()
+        .any(|permission| !policy.granted_permissions.contains(permission))
+    {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::Deny,
+            risk,
+            reason: "permission_not_granted".into(),
+        };
+    }
+    if risk > policy.maximum_risk {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::Deny,
+            risk,
+            reason: "risk_exceeds_policy".into(),
+        };
+    }
+    if !package.authority.approvals.is_empty() || risk >= policy.approval_at_or_above {
+        return CapabilityAdmissionDecision {
+            effect: PolicyEffect::RequireApproval,
+            risk,
+            reason: "capability_approval_required".into(),
+        };
+    }
+    CapabilityAdmissionDecision {
+        effect: PolicyEffect::Allow,
+        risk,
+        reason: "capability_admitted".into(),
+    }
 }
 
 /// Policy outcome beyond RBAC.
@@ -262,6 +488,21 @@ pub struct ApprovalRecord {
     pub resolved_by: Option<String>,
 }
 
+/// Approval request bound to one capability action and its displayed values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityApprovalRequest {
+    /// Persistent approval lifecycle record.
+    pub record: ApprovalRecord,
+    /// Capability package identity being approved.
+    pub capability_id: String,
+    /// Capability version being approved.
+    pub capability_version: String,
+    /// Action gate the approval authorizes.
+    pub checkpoint: String,
+    /// Exact safe fields shown to the approver.
+    pub display_values: BTreeMap<String, String>,
+}
+
 /// Bounded local approval workflow used by standalone deployments.
 #[derive(Default)]
 pub struct ApprovalStore {
@@ -309,6 +550,66 @@ impl ApprovalStore {
         Ok(record)
     }
 
+    /// Creates a checkpoint approval tied to the exact values shown to a human.
+    ///
+    /// The returned record stores only a digest of the request context. The
+    /// display values are returned to the caller for rendering and are never
+    /// persisted by this store.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid packages, unknown checkpoints, missing displayed values,
+    /// invalid context, expired requests, or a full approval store.
+    pub fn request_capability_checkpoint(
+        &self,
+        scope: RegistryScope,
+        requester: impl Into<String>,
+        package: &CapabilityPackage,
+        checkpoint: &str,
+        action_values: &BTreeMap<String, Value>,
+        expires_at_millis: u64,
+        now_millis: u64,
+    ) -> Result<CapabilityApprovalRequest, AgentMeshError> {
+        package
+            .validate()
+            .map_err(|_| configuration("The capability package is invalid for approval."))?;
+        let gate = package
+            .authority
+            .approvals
+            .iter()
+            .find(|gate| gate.before == checkpoint)
+            .ok_or_else(|| configuration("The capability approval checkpoint is unknown."))?;
+        let mut display_values = BTreeMap::new();
+        for field in &gate.display {
+            let value = action_values.get(field).ok_or_else(|| {
+                configuration("An approval display field is missing from the action.")
+            })?;
+            validate_text(field)?;
+            let rendered = render_approval_value(value);
+            if rendered.len() > 4_096 || rendered.chars().any(char::is_control) {
+                return Err(configuration(
+                    "An approval display value is invalid or unbounded.",
+                ));
+            }
+            display_values.insert(field.clone(), rendered);
+        }
+        let fingerprint = approval_fingerprint(
+            &package.capability.id,
+            &package.capability.version,
+            checkpoint,
+            &display_values,
+            action_values,
+        )?;
+        let record = self.request(scope, requester, fingerprint, expires_at_millis, now_millis)?;
+        Ok(CapabilityApprovalRequest {
+            record,
+            capability_id: package.capability.id.clone(),
+            capability_version: package.capability.version.clone(),
+            checkpoint: checkpoint.into(),
+            display_values,
+        })
+    }
+
     /// Resolves a pending request using separation of duties.
     ///
     /// # Errors
@@ -347,6 +648,91 @@ impl ApprovalStore {
         record.resolved_by = Some(approver.into());
         Ok(record.clone())
     }
+}
+
+/// Checks whether an approval request still describes the current action.
+///
+/// Any change to capability identity, checkpoint, or displayed values requires
+/// a fresh approval.
+pub fn capability_approval_matches(
+    request: &CapabilityApprovalRequest,
+    package: &CapabilityPackage,
+    checkpoint: &str,
+    action_values: &BTreeMap<String, Value>,
+) -> bool {
+    if package.capability.id != request.capability_id
+        || package.capability.version != request.capability_version
+        || checkpoint != request.checkpoint
+        || package.validate().is_err()
+    {
+        return false;
+    }
+    let Ok(current) = displayed_values(package, checkpoint, action_values) else {
+        return false;
+    };
+    let Ok(fingerprint) = approval_fingerprint(
+        &package.capability.id,
+        &package.capability.version,
+        checkpoint,
+        &current,
+        action_values,
+    ) else {
+        return false;
+    };
+    request.record.request_fingerprint == fingerprint
+}
+
+fn displayed_values(
+    package: &CapabilityPackage,
+    checkpoint: &str,
+    action_values: &BTreeMap<String, Value>,
+) -> Result<BTreeMap<String, String>, AgentMeshError> {
+    let gate = package
+        .authority
+        .approvals
+        .iter()
+        .find(|gate| gate.before == checkpoint)
+        .ok_or_else(|| configuration("The capability approval checkpoint is unknown."))?;
+    let mut display_values = BTreeMap::new();
+    for field in &gate.display {
+        let value = action_values.get(field).ok_or_else(|| {
+            configuration("An approval display field is missing from the action.")
+        })?;
+        validate_text(field)?;
+        let rendered = render_approval_value(value);
+        if rendered.len() > 4_096 || rendered.chars().any(char::is_control) {
+            return Err(configuration(
+                "An approval display value is invalid or unbounded.",
+            ));
+        }
+        display_values.insert(field.clone(), rendered);
+    }
+    Ok(display_values)
+}
+
+fn render_approval_value(value: &Value) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.to_string(), ToOwned::to_owned)
+}
+
+fn approval_fingerprint(
+    capability_id: &str,
+    capability_version: &str,
+    checkpoint: &str,
+    display_values: &BTreeMap<String, String>,
+    action_values: &BTreeMap<String, Value>,
+) -> Result<String, AgentMeshError> {
+    let payload = serde_json::to_vec(&(
+        capability_id,
+        capability_version,
+        checkpoint,
+        display_values,
+        action_values,
+    ))
+    .map_err(|_| configuration("The capability approval context could not be encoded."))?;
+    let digest = Sha256::digest(payload);
+    Ok(format!("sha256:{digest:x}"))
 }
 
 fn policy_matches(matcher: &PolicyMatch, context: &PolicyContext<'_>) -> bool {

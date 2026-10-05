@@ -16,6 +16,7 @@ dependencies = [
  "agentmesh-control-api",
  "agentmesh-control-plane",
  "agentmesh-gateway",
+ "agentmesh-protocol",
  "agentmesh-proxy",
  "agentmesh-storage",
  "agentmesh-teach",
@@ -228,10 +229,13 @@ dependencies = [
  "agentmesh-authn",
  "agentmesh-authz",
  "agentmesh-error",
+ "agentmesh-protocol",
  "agentmesh-rate-limit",
  "agentmesh-registry",
  "agentmesh-tasks",
  "serde",
+ "serde_json",
+ "sha2",
  "uuid",
 ]
 
@@ -242,6 +246,8 @@ dependencies = [
  "agentmesh-error",
  "serde",
  "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -277,6 +283,7 @@ version = "0.3.1"
 dependencies = [
  "agentmesh-core",
  "agentmesh-error",
+ "agentmesh-protocol",
  "rusqlite",
  "serde",
  "serde_json",
@@ -307,7 +314,10 @@ name = "agentmesh-runtime"
 version = "0.3.1"
 dependencies = [
  "agentmesh-error",
+ "agentmesh-policy",
+ "agentmesh-protocol",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -345,6 +355,7 @@ dependencies = [
 name = "agentmesh-teach"
 version = "0.3.1"
 dependencies = [
+ "agentmesh-protocol",
  "serde",
  "serde_json",
  "serde_yaml",
