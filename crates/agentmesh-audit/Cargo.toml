@@ -8,19 +8,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-error = { path = "../agentmesh-error", version = "0.3.0" }
-agentmesh-registry = { path = "../agentmesh-registry", version = "0.3.0" }
-agentmesh-security = { path = "../agentmesh-security", version = "0.3.0" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
+agentmesh-registry = { path = "../agentmesh-registry", version = "0.3.1" }
+agentmesh-security = { path = "../agentmesh-security", version = "0.3.1" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-agentmesh-cache = { path = "../agentmesh-cache", version = "0.3.0" }
-agentmesh-core = { path = "../agentmesh-core", version = "0.3.0" }
-agentmesh-credentials = { path = "../agentmesh-credentials", version = "0.3.0" }
-agentmesh-telemetry = { path = "../agentmesh-telemetry", version = "0.3.0" }
+agentmesh-cache = { path = "../agentmesh-cache", version = "0.3.1" }
+agentmesh-core = { path = "../agentmesh-core", version = "0.3.1" }
+agentmesh-credentials = { path = "../agentmesh-credentials", version = "0.3.1" }
+agentmesh-telemetry = { path = "../agentmesh-telemetry", version = "0.3.1" }
 
 [lints]
 workspace = true
