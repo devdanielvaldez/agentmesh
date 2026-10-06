@@ -443,6 +443,16 @@ an evaluation/training bridge without claiming to train weights locally. Full sc
 families: [Workflow IR](docs/WORKFLOW_IR.md).
 Hands-on walkthrough: [Teach manual](docs/TEACH_MANUAL.md).
 
+MCP discovery includes each workflow's AMCP contract, described intent, required inputs,
+preconditions, success checks, effects, permissions, and a semantic step summary. Successful runs
+return a receipt with the checked assertions and a digest of the retained audit record; workflows
+without success checks are reported as completed but unverified. Agents can create reusable,
+confirmed composite capabilities with `teach_create_composite_capability`. A composite sequences
+existing workflows, maps caller inputs and earlier outputs, and appears in capability search after
+creation as a named MCP tool, with a tools-changed notification where the MCP SDK supports it. It
+cannot contain arbitrary code. If a step fails after earlier steps completed, the MCP
+response marks reconciliation as required before retrying.
+
 ### Connect an AI client
 
 An export is a plain MCP stdio server. Generate its ready-to-use client file
@@ -491,7 +501,9 @@ without restart; per-tool registrations added afterwards need a re-export.
 
 Run `agentmesh` with no arguments in a terminal to open the interactive console.
 It provides a dashboard, capability catalog and dependency graph, workflow
-management, MCP integrations, saved browser login sessions, and diagnostics.
+management, composite MCP tools, MCP integrations, saved browser login sessions,
+and diagnostics. Open **Composite MCP tools** to list and inspect saved tools,
+create one from a JSON/YAML recipe, or run it with prompted inputs.
 From **Workflows & Teach**, press `t` and follow the prompts to choose a start
 URL, scope, and whether to use a temporary browser, reuse a saved login, or
 sign in and save a profile first. The **Login Sessions** page also lets you
@@ -523,12 +535,33 @@ Desktop must be restarted to load a changed local server configuration.
 | `upgrade` | Check for a newer release and optionally install it. |
 | `teach` | Interactively author a workflow draft into the local store (`manual` or `--target browser` recording). |
 | `workflows` | Manage stored workflows (21 subcommands): list, inspect, validate; run (with `--dry-run`), test, eval; export to MCP and write client configs; diff, rename, import, delete, apply-repair, relax, compose, prune; API adapter generation and checks; dataset, report, and flaky analytics. |
+| `composites` | Create, list, inspect, and run sequential MCP tools that compose saved Teach workflows. |
 | `sessions` | Log in once per application and reuse the persistent session profile. |
 | `secret` | List, set, and rotate `SECRET_*` references used by stored workflows. |
 | `replay` | Re-execute a recorded run with its original or overridden inputs. |
 
 Use `agentmesh <command> --help` for all flags. Complete command and API examples live in the
 [User Guide](docs/USER_GUIDE.md).
+
+Compose saved workflows locally with a JSON/YAML recipe. `--state-dir` points at the same
+MCP server state directory that contains `composites.json`; set
+`AGENTMESH_MCP_STATE_DIR` to share that catalog with a running exported server.
+After creating a recipe, call `teach_reload_capabilities` on that MCP server or restart it.
+Running compositions validates typed inputs, asks once before any declared write effects,
+and reports each workflow run and audit receipt:
+
+```bash
+agentmesh composites list
+agentmesh composites inspect composite.customer_follow_up
+agentmesh composites create ./customer-follow-up.yaml
+agentmesh composites run composite.customer_follow_up --input customer_id=123
+```
+
+Recipes name previously saved workflow capabilities and map inputs explicitly with
+`{"$input":"customer_id"}` or prior outputs with
+`{"$step":"lookup","path":"outputs.email"}`. Each later step can only use outputs
+from earlier steps. The recipe format and failure recovery behavior are described in
+the [Teach manual](docs/TEACH_MANUAL.md#13-composite-mcp-tools-in-the-cli).
 
 ## Security model
 

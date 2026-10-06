@@ -279,6 +279,46 @@ as a single MCP library:
 agentmesh workflows export --all --target mcp --out /tmp/my-capabilities-mcp
 ```
 
+The library offers search and describe tools that expose each workflow's inputs,
+outputs, effects, permissions, preconditions, and success checks. A successful
+execution includes a receipt tied to the audit log. It reports `verified` only
+when the workflow's declared success checks passed; a workflow without checks
+can run but is reported as unverified.
+
+The agent can also create a reusable tool by composing workflows already in the
+library. It asks for confirmation, validates input and output mappings, and saves
+the composite in the server's MCP state directory:
+
+```json
+{
+  "id": "customer.follow_up",
+  "description": "Find a customer, then read their latest messages",
+  "input_schema": {
+    "type": "object",
+    "properties": { "customer": { "type": "string" } },
+    "required": ["customer"]
+  },
+  "steps": [
+    {
+      "step_id": "find_customer",
+      "capability_id": "crm.search_customer",
+      "input_mapping": { "query": { "$input": "customer" } }
+    },
+    {
+      "step_id": "read_messages",
+      "capability_id": "whatsapp.read_messages",
+      "input_mapping": { "contact": { "$step": "find_customer", "path": "outputs.name" } }
+    }
+  ]
+}
+```
+
+The composite is registered as the `customer_follow_up` MCP tool and is also
+discoverable as `customer.follow_up` through capability search. It can also run
+with `teach_execute_capability`. Execution approval summarizes the combined plan
+and effects. Each step's success checks still run. If a later step fails, the result identifies completed steps and asks
+the agent to reconcile external state before retrying.
+
 To plug the server into a client without hand-writing the file,
 generate its ready-to-use configuration (`--profile` accepts the session
 name or the profile directory; without it, tools run logged out):
@@ -385,7 +425,52 @@ files). You can also force it with the
 `teach_reload_capabilities` tool. Only newly added per-tool registrations
 in non-compact libraries require a restart.
 
-## 13. Cleanup
+## 13. Composite MCP tools in the CLI
+
+Compositions let one MCP tool run several saved Teach workflows in order. Create a JSON or
+YAML recipe with a namespaced ID, input schema, and explicit step mappings:
+
+```yaml
+id: composite.customer-follow-up
+description: Find a customer and send the requested follow-up
+input_schema:
+  type: object
+  properties:
+    customer_id:
+      type: string
+  required: [customer_id]
+steps:
+  - step_id: lookup
+    capability_id: crm.find-customer
+    input_mapping:
+      id: { $input: customer_id }
+  - step_id: follow_up
+    capability_id: crm.send-follow-up
+    input_mapping:
+      email: { $step: lookup, path: outputs.email }
+```
+
+Every `capability_id` must identify an existing saved workflow, and each step needs recorded
+success checks. Inputs are typed and validated before execution. The CLI validates the full
+plan first and requests one approval if any child workflow declares write effects. Credentials
+stay in the child workflow secret store and cannot be mapped as composition inputs.
+
+```bash
+agentmesh composites create ./customer-follow-up.yaml
+agentmesh composites list
+agentmesh composites inspect composite.customer-follow-up
+agentmesh composites run composite.customer-follow-up --input customer_id=123
+# For automation, acknowledge the whole declared write plan explicitly:
+agentmesh composites run composite.customer-follow-up --input customer_id=123 --yes
+```
+
+The default catalog is `~/.agentmesh/mcp-state/agentmesh-taught-capabilities/composites.json`.
+Use `--state-dir DIR` or `AGENTMESH_MCP_STATE_DIR` when the MCP server uses another directory.
+Once saved, call `teach_reload_capabilities` on that server or restart it. Each step returns
+its outputs, run ID, audit path, and package digest. If a step fails after prior steps completed,
+the CLI stops and reports which external state needs reconciliation before a retry.
+
+## 14. Cleanup
 
 ```bash
 # Delete the whole lab (workflows, runs, profiles, repairs)

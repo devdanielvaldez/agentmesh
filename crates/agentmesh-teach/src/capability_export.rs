@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 
 use agentmesh_protocol::{
-    CapabilityContract, CapabilityDefinition, CapabilityPackage, EffectKind, EvidenceClaim,
-    EvidenceType, Idempotency, ImplementationBinding, ImplementationKind, RecoveryStrategy,
+    ApprovalCheckpoint, CapabilityContract, CapabilityDefinition, CapabilityPackage, EffectKind,
+    EvidenceClaim, EvidenceType, Idempotency, ImplementationBinding, ImplementationKind,
+    RecoveryStrategy,
 };
 use serde_json::{Map, Value, json};
 
@@ -54,8 +55,24 @@ pub fn compile_workflow_capability(workflow: &Workflow) -> Result<CapabilityPack
 
     let output_properties: Map<String, Value> = workflow
         .outputs
-        .keys()
-        .map(|name| (name.clone(), json!({})))
+        .iter()
+        .map(|(name, output)| {
+            let step_id = output
+                .from
+                .strip_prefix("steps.")
+                .unwrap_or(&output.from)
+                .split('.')
+                .next()
+                .unwrap_or_default();
+            let step = workflow.steps.iter().find(|step| step.id == step_id);
+            let schema = match step.map(|step| step.op.as_str()) {
+                Some("ui.extract") => json!({ "type": "array", "items": {} }),
+                Some("assert.exists" | "assert.not_exists") => json!({ "type": "boolean" }),
+                Some("assert.text" | "assert.url") => json!({ "type": "string" }),
+                _ => json!({}),
+            };
+            (name.clone(), schema)
+        })
         .collect();
     let output_schema = json!({
         "type": "object",
@@ -75,6 +92,7 @@ pub fn compile_workflow_capability(workflow: &Workflow) -> Result<CapabilityPack
         })
         .collect();
 
+    let mut permissions = Vec::new();
     let mut effects = Vec::new();
     let has_browser = workflow
         .steps
@@ -102,11 +120,21 @@ pub fn compile_workflow_capability(workflow: &Workflow) -> Result<CapabilityPack
     if has_mutation {
         effects.push(EffectKind::DataWrite);
     }
+    let uses_credentials = workflow.steps.iter().any(|step| {
+        step.op.starts_with("auth.")
+            || step
+                .value
+                .as_deref()
+                .is_some_and(|value| value.starts_with("secret://"))
+    });
+    if uses_credentials {
+        effects.push(EffectKind::CredentialAccess);
+        permissions.push("credentials.use".into());
+    }
     if effects.is_empty() {
         effects.push(EffectKind::ReadOnly);
     }
 
-    let mut permissions = Vec::new();
     if has_browser {
         permissions.push("browser.control".into());
         permissions.push("network.egress".into());
@@ -150,8 +178,20 @@ pub fn compile_workflow_capability(workflow: &Workflow) -> Result<CapabilityPack
             recovery,
         },
         authority: agentmesh_protocol::AuthorityRequirements {
-            permissions,
-            approvals: Vec::new(),
+            permissions: {
+                permissions.sort();
+                permissions.dedup();
+                permissions
+            },
+            approvals: if has_mutation {
+                vec![ApprovalCheckpoint {
+                    before: "execute".into(),
+                    display: workflow.inputs.keys().cloned().collect(),
+                    required_role: None,
+                }]
+            } else {
+                Vec::new()
+            },
             constraints: BTreeMap::new(),
         },
         implementations: vec![ImplementationBinding {
@@ -161,7 +201,23 @@ pub fn compile_workflow_capability(workflow: &Workflow) -> Result<CapabilityPack
             configuration: BTreeMap::new(),
         }],
         provenance: None,
-        extensions: BTreeMap::new(),
+        extensions: BTreeMap::from([(
+            "x-agentmesh-teach".into(),
+            json!({
+                "runtime": workflow.runtime,
+                "stepCount": workflow.steps.len(),
+                "steps": workflow.steps.iter().map(|step| json!({
+                    "id": step.id,
+                    "operation": step.op,
+                    "target": step.target.as_ref().and_then(|target| target.semantic.as_deref()
+                        .or(target.accessible_name.as_deref()).or(target.text.as_deref())),
+                    "description": step.value.as_deref().filter(|value| !value.contains("{{"))
+                })).collect::<Vec<_>>(),
+                "preconditions": workflow.preconditions.iter().map(assertion_description).collect::<Vec<_>>(),
+                "successChecks": workflow.success.iter().map(assertion_description).collect::<Vec<_>>(),
+                "outputs": workflow.outputs.keys().collect::<Vec<_>>()
+            }),
+        )]),
     };
     package
         .validate()

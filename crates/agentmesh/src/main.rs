@@ -20,6 +20,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod capability_cli;
+mod composite_cli;
 mod interactive;
 mod teach_flow;
 mod upgrade;
@@ -157,6 +158,14 @@ enum Command {
     Capabilities {
         #[command(subcommand)]
         action: CapabilityAction,
+    },
+    /// Creates and runs reusable MCP tools composed from taught workflows.
+    Composites {
+        /// MCP server state directory. Defaults to the all-workflows export state.
+        #[arg(long, global = true, env = "AGENTMESH_MCP_STATE_DIR")]
+        state_dir: Option<PathBuf>,
+        #[command(subcommand)]
+        action: CompositeAction,
     },
     /// Manages persistent application sessions.
     Sessions {
@@ -523,6 +532,34 @@ enum CapabilityAction {
     },
 }
 
+/// Local operations for named MCP composite tools.
+#[derive(Debug, Subcommand)]
+pub(crate) enum CompositeAction {
+    /// Lists composite tools saved for this MCP server.
+    List,
+    /// Prints one composite tool's contract and execution plan.
+    Inspect { id: String },
+    /// Creates a composite from a JSON or YAML recipe file.
+    Create { recipe: PathBuf },
+    /// Executes a composite tool using local Teach workflows.
+    Run {
+        /// Composite capability id.
+        id: String,
+        /// Composite inputs as KEY=VALUE (JSON values are parsed when valid).
+        #[arg(long = "input", value_name = "KEY=VALUE")]
+        input: Vec<String>,
+        /// Skip the single preflight confirmation for the full composition.
+        #[arg(long)]
+        yes: bool,
+        /// Reuse a stored browser session across all steps.
+        #[arg(long)]
+        session: Option<String>,
+        /// Show browser windows while executing.
+        #[arg(long)]
+        headed: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -568,6 +605,9 @@ async fn main() -> Result<()> {
         Command::Diff { current, candidate } => diff(&current, &candidate),
         Command::Doctor { config } => doctor(&config),
         Command::Capabilities { action } => capability_cli::run(action),
+        Command::Composites { action, state_dir } => {
+            composite_cli::run(action, state_dir.as_deref())
+        }
         teach @ (Command::Teach { .. }
         | Command::Workflows { .. }
         | Command::Sessions { .. }

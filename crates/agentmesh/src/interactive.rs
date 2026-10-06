@@ -21,6 +21,8 @@ enum Page {
     CapabilityDetail,
     Workflows,
     WorkflowDetail,
+    Composites,
+    CompositeDetail,
     Integrations,
     Sessions,
     Diagnostics,
@@ -35,6 +37,7 @@ struct App {
     filter: String,
     selected_capability: Option<CapabilityPackage>,
     selected_workflow: Option<String>,
+    selected_composite: Option<String>,
     catalog_root: PathBuf,
     notice: String,
 }
@@ -48,6 +51,7 @@ impl App {
             filter: String::new(),
             selected_capability: None,
             selected_workflow: None,
+            selected_composite: None,
             catalog_root: capability_cli::catalog_directory(),
             notice: "AgentMesh is ready. Select a workspace to get started.".into(),
         }
@@ -58,6 +62,9 @@ impl App {
             Page::Home => 7,
             Page::Capabilities => visible_capabilities(self).len(),
             Page::Workflows => workflow_summaries().map_or(0, |items| items.len()),
+            Page::Composites => {
+                crate::composite_cli::console_catalog().map_or(0, |items| items.len())
+            }
             _ => 0,
         };
         if length == 0 {
@@ -71,6 +78,7 @@ impl App {
         self.page = match self.page {
             Page::CapabilityDetail => Page::Capabilities,
             Page::WorkflowDetail => Page::Workflows,
+            Page::CompositeDetail => Page::Composites,
             _ => Page::Home,
         };
         self.notice = "Ready".into();
@@ -152,6 +160,7 @@ fn read_key() -> Result<Key> {
             "5" => Key::Character('5'),
             "6" => Key::Character('6'),
             "7" => Key::Character('7'),
+            "8" => Key::Character('8'),
             "q" | "Q" => Key::Character('q'),
             _ => Key::Enter,
         })
@@ -168,9 +177,9 @@ fn handle_key(app: &mut App, key: Key) -> Result<bool> {
     }
     match app.page {
         Page::Home => match key {
-            Key::Up => app.home_selection = (app.home_selection + 6) % 7,
-            Key::Down => app.home_selection = (app.home_selection + 1) % 7,
-            Key::Character('1'..='7') => {
+            Key::Up => app.home_selection = (app.home_selection + 7) % 8,
+            Key::Down => app.home_selection = (app.home_selection + 1) % 8,
+            Key::Character('1'..='8') => {
                 app.home_selection = key_digit(key) - 1;
                 open_home_page(app);
             }
@@ -246,6 +255,26 @@ fn handle_key(app: &mut App, key: Key) -> Result<bool> {
             Key::Character('q' | 'Q') => app.back(),
             _ => {}
         },
+        Page::Composites => match key {
+            Key::Up => app.move_selection(-1),
+            Key::Down => app.move_selection(1),
+            Key::Enter => {
+                if let Some(item) = crate::composite_cli::console_catalog()?.get(app.selected) {
+                    app.selected_composite = Some(item.id.clone());
+                    app.page = Page::CompositeDetail;
+                }
+            }
+            Key::Character('c' | 'C') => create_composite_from_console()?,
+            Key::Character('r' | 'R') => run_selected_composite(app)?,
+            Key::Character('q' | 'Q') => app.back(),
+            _ => {}
+        },
+        Page::CompositeDetail => match key {
+            Key::Character('r' | 'R') => run_selected_composite(app)?,
+            Key::Character('c' | 'C') => create_composite_from_console()?,
+            Key::Character('q' | 'Q') => app.back(),
+            _ => {}
+        },
         Page::Integrations => match key {
             Key::Character('r' | 'R') => {
                 app.notice = "Configuration reloaded on the next view.".into()
@@ -288,9 +317,10 @@ fn open_home_page(app: &mut App) {
         0 => Page::Home,
         1 => Page::Capabilities,
         2 => Page::Workflows,
-        3 => Page::Integrations,
-        4 => Page::Sessions,
-        5 => Page::Diagnostics,
+        3 => Page::Composites,
+        4 => Page::Integrations,
+        5 => Page::Sessions,
+        6 => Page::Diagnostics,
         _ => Page::Help,
     };
 }
@@ -315,6 +345,8 @@ fn draw(app: &App) {
             Page::CapabilityDetail => draw_capability_detail(app, &mut output),
             Page::Workflows => draw_workflows(app, &mut output),
             Page::WorkflowDetail => draw_workflow_detail(app, &mut output),
+            Page::Composites => draw_composites(app, &mut output),
+            Page::CompositeDetail => draw_composite_detail(app, &mut output),
             Page::Integrations => draw_integrations(&mut output),
             Page::Sessions => draw_sessions(&mut output),
             Page::Diagnostics => draw_diagnostics(&mut output),
@@ -340,6 +372,10 @@ fn draw_home(app: &App, output: &mut String) {
         (
             "Workflows & Teach",
             "Learn, inspect, validate, and run workflows",
+        ),
+        (
+            "Composite MCP tools",
+            "Build and run multi-step agent tools",
         ),
         (
             "MCP Integrations",
@@ -368,13 +404,17 @@ fn draw_home(app: &App, output: &mut String) {
     }
     output.push('\n');
     let workflows = workflow_summaries().map_or(0, |items| items.len());
+    let composites = crate::composite_cli::console_catalog().map_or(0, |items| items.len());
     let capabilities =
         capability_cli::load_catalog(&app.catalog_root).map_or(0, |items| items.len());
     let providers = configured_upstreams().map_or(0, |items| items.len());
     output.push_str(
         "  ┌─ WORKSPACE SNAPSHOT ──────────────────────────────────────────────────────┐\n",
     );
-    output.push_str(&format!("  │  Workflows  {:>3}     Capabilities  {:>3}     MCP providers  {:>3}                 │\n", workflows, capabilities, providers));
+    output.push_str(&format!(
+        "  │  Workflows  {:>3}     Composites  {:>3}     Capabilities  {:>3}     MCP  {:>3}    │\n",
+        workflows, composites, capabilities, providers
+    ));
     output.push_str(
         "  └──────────────────────────────────────────────────────────────────────────┘\n\n",
     );
@@ -386,6 +426,7 @@ fn draw_sidebar(app: &App, output: &mut String) {
         "Home",
         "Capabilities",
         "Workflows",
+        "Composites",
         "Integrations",
         "Sessions",
         "Diagnostics",
@@ -395,10 +436,11 @@ fn draw_sidebar(app: &App, output: &mut String) {
         Page::Home => 0,
         Page::Capabilities | Page::CapabilityDetail => 1,
         Page::Workflows | Page::WorkflowDetail => 2,
-        Page::Integrations => 3,
-        Page::Sessions => 4,
-        Page::Diagnostics => 5,
-        Page::Help => 6,
+        Page::Composites | Page::CompositeDetail => 3,
+        Page::Integrations => 4,
+        Page::Sessions => 5,
+        Page::Diagnostics => 6,
+        Page::Help => 7,
     };
     output.push_str("  ");
     for (index, page) in pages.iter().enumerate() {
@@ -579,6 +621,158 @@ fn draw_workflows(app: &App, output: &mut String) {
         ));
     }
     output.push_str("\n  Enter inspect  ·  r run selected  ·  t record a browser session\n");
+}
+
+fn draw_composites(app: &App, output: &mut String) {
+    let items = match crate::composite_cli::console_catalog() {
+        Ok(items) => items,
+        Err(error) => {
+            output.push_str(&format!("  Could not read composite catalog: {error}\n"));
+            return;
+        }
+    };
+    output.push_str(&format!(
+        "  COMPOSITE MCP TOOLS  ·  {} saved\n\n",
+        items.len()
+    ));
+    if items.is_empty() {
+        output.push_str("  No composites yet. Press c to create one from a JSON/YAML recipe.\n");
+    }
+    for (index, item) in items.iter().enumerate().take(18) {
+        let marker = if index == app.selected { "▶" } else { " " };
+        output.push_str(&format!(
+            "  {marker}  {:<34} {:>2} steps  {:<8} {}\n",
+            item.id, item.step_count, item.risk, item.description
+        ));
+    }
+    output.push_str("\n  Enter inspect  ·  r run selected  ·  c create from recipe\n");
+}
+
+fn draw_composite_detail(app: &App, output: &mut String) {
+    let Some(id) = &app.selected_composite else {
+        output.push_str("  No composite selected.\n");
+        return;
+    };
+    match crate::composite_cli::console_catalog().and_then(|items| {
+        items
+            .into_iter()
+            .find(|item| &item.id == id)
+            .context("composite not found")
+    }) {
+        Ok(item) => {
+            output.push_str(&format!("  {}\n  {}\n\n", item.id, item.description));
+            output.push_str(&format!(
+                "  Steps: {}    Risk: {}    Writes: {}\n\n  INPUT SCHEMA\n",
+                item.step_count,
+                item.risk,
+                if item.has_write { "yes" } else { "no" }
+            ));
+            output.push_str(&format!(
+                "{}\n",
+                serde_json::to_string_pretty(&item.inputs).unwrap_or_default()
+            ));
+            output.push_str("\n  r run composite   c create another   q back\n");
+        }
+        Err(error) => output.push_str(&format!("  Could not inspect composite: {error}\n")),
+    }
+}
+
+fn create_composite_from_console() -> Result<()> {
+    let recipe = prompt("JSON/YAML recipe path")?;
+    if recipe.trim().is_empty() {
+        return Ok(());
+    }
+    run_action("Create composite MCP tool", || {
+        crate::composite_cli::run(
+            crate::CompositeAction::Create {
+                recipe: PathBuf::from(recipe),
+            },
+            None,
+        )
+    })
+}
+
+fn run_selected_composite(app: &App) -> Result<()> {
+    let items = crate::composite_cli::console_catalog()?;
+    let id = app
+        .selected_composite
+        .clone()
+        .or_else(|| items.get(app.selected).map(|item| item.id.clone()));
+    let Some(id) = id else {
+        app_notice("No composite is selected.");
+        return Ok(());
+    };
+    let item = items
+        .iter()
+        .find(|item| item.id == id)
+        .context("composite not found")?;
+    let mut input = Vec::new();
+    if let Some(properties) = item
+        .inputs
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    {
+        let required = item
+            .inputs
+            .get("required")
+            .and_then(serde_json::Value::as_array);
+        for (name, schema) in properties {
+            let default = schema
+                .get("default")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map_or_else(|| value.to_string(), str::to_owned)
+                })
+                .unwrap_or_default();
+            let is_required = required
+                .is_some_and(|items| items.iter().any(|value| value.as_str() == Some(name)));
+            let label = if !default.is_empty() {
+                format!("{name} [default: {default}]")
+            } else if is_required {
+                format!("{name} (required)")
+            } else {
+                format!("{name} (optional; empty to skip)")
+            };
+            let value = prompt(&label)?;
+            let value = if value.is_empty() { default } else { value };
+            if value.is_empty() && is_required {
+                anyhow::bail!("required composite input {name:?} was empty");
+            }
+            if !value.is_empty() {
+                input.push(format!("{name}={value}"));
+            }
+        }
+    }
+    let profiles = session_profiles();
+    let session = if profiles.is_empty() {
+        None
+    } else {
+        let choice = prompt("Saved login profile (empty for none)")?;
+        profiles
+            .iter()
+            .find(|profile| profile.0 == choice)
+            .map(|profile| profile.0.clone())
+    };
+    let headed = matches!(
+        prompt("Show browser windows? [y/N]")?
+            .trim()
+            .to_lowercase()
+            .as_str(),
+        "y" | "yes"
+    );
+    run_action(&format!("Run composite {id}"), || {
+        crate::composite_cli::run(
+            crate::CompositeAction::Run {
+                id,
+                input,
+                yes: false,
+                session,
+                headed,
+            },
+            None,
+        )
+    })
 }
 
 fn draw_workflow_detail(app: &App, output: &mut String) {
@@ -1091,6 +1285,7 @@ fn draw_help(output: &mut String) {
     output.push_str("  c            Clear capability search\n");
     output.push_str("  i            Install a capability package\n");
     output.push_str("  t            Record a browser session into a workflow\n");
+    output.push_str("  c            Create or run a composite MCP tool from its menu\n");
     output.push_str("  Login Sessions lets you save logins and choose one when recording\n");
     output.push_str("  r            Run the selected workflow\n");
     output.push_str("  m            Create MCP server and connect an AI client\n");
