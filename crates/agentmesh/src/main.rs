@@ -565,7 +565,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let command = match cli.command {
         Some(command) => command,
-        None if std::io::stdin().is_terminal() => return interactive::run(),
+        None if std::io::stdin().is_terminal() => {
+            if maybe_upgrade_on_startup().await? {
+                return Ok(());
+            }
+            return interactive::run();
+        }
         None => anyhow::bail!("Interactive mode needs a terminal; pass --help to list commands."),
     };
 
@@ -613,7 +618,9 @@ async fn main() -> Result<()> {
         | Command::Sessions { .. }
         | Command::Secret { .. }
         | Command::Replay { .. }) => dispatch_teach(teach),
-        Command::Upgrade { check, yes, to } => upgrade::run_upgrade(check, yes, to).await,
+        Command::Upgrade { check, yes, to } => {
+            upgrade::run_upgrade(check, yes, to).await.map(|_| ())
+        }
         Command::Policy {
             config,
             tool,
@@ -653,6 +660,40 @@ async fn main() -> Result<()> {
                 &token,
             )
             .await
+        }
+    }
+}
+
+async fn maybe_upgrade_on_startup() -> Result<bool> {
+    if std::env::var("AGENTMESH_NO_UPDATE_CHECK").is_ok() {
+        return Ok(false);
+    }
+    let Some(notice) = upgrade::refresh_notice().await else {
+        return Ok(false);
+    };
+    eprintln!("{notice}");
+    print!("¿Quieres descargar e instalar la actualización ahora? [s/N] ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    if !matches!(
+        answer.trim().to_lowercase().as_str(),
+        "s" | "si" | "sí" | "y" | "yes"
+    ) {
+        return Ok(false);
+    }
+    match upgrade::run_upgrade(false, true, None).await {
+        Ok(true) => {
+            println!(
+                "Actualización instalada. Vuelve a abrir AgentMesh para usar la nueva versión."
+            );
+            Ok(true)
+        }
+        Ok(false) => Ok(false),
+        Err(error) => {
+            eprintln!("No se pudo actualizar: {error:#}");
+            eprintln!("Se iniciará AgentMesh con la versión actual.");
+            Ok(false)
         }
     }
 }

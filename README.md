@@ -128,9 +128,9 @@ downloads, and checksums: [INSTALL.md](INSTALL.md).
 
 ### Staying updated
 
-Every command checks the latest GitHub release at most once a day (a cache read on most runs,
-one ≤2s query when stale, silent without network; opt out with `AGENTMESH_NO_UPDATE_CHECK=1`)
-and prints `Update available: x -> y` when you are behind:
+On interactive startup, AgentMesh checks the latest GitHub release using a daily cache (one ≤2s
+query when stale) and offers to download and install an available update. Other commands print an
+update notice. Checks fail silently when offline; opt out with `AGENTMESH_NO_UPDATE_CHECK=1`:
 
 ```bash
 agentmesh upgrade --check   # report only
@@ -452,6 +452,12 @@ existing workflows, maps caller inputs and earlier outputs, and appears in capab
 creation as a named MCP tool, with a tools-changed notification where the MCP SDK supports it. It
 cannot contain arbitrary code. If a step fails after earlier steps completed, the MCP
 response marks reconciliation as required before retrying.
+
+The generated server exposes `teach_explain_agentmesh` with its lifecycle and authoring instructions.
+By default, composite creation asks for confirmation. To let the model create declarative composites
+without that prompt, the server owner can set `AGENTMESH_MCP_ALLOW_COMPOSITE_CREATION=1` in the MCP
+server environment. This only composes installed workflows; existing execution policy and approvals
+still apply, and the model cannot add permissions or load arbitrary code through this setting.
 
 ### Connect an AI client
 

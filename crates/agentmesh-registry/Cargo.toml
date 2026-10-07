@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-core = { path = "../agentmesh-core", version = "0.3.1" }
-agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
-agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.3.1" }
+agentmesh-core = { path = "../agentmesh-core", version = "0.3.2" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.2" }
+agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.3.2" }
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true

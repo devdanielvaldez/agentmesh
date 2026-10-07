@@ -1,6 +1,6 @@
 {
   "name": "@agentmesh/teach",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Browser recorder, workflow runtime, and session manager for AgentMesh Teach",
   "type": "module",
   "engines": {

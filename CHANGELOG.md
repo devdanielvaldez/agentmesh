@@ -6,6 +6,17 @@ All notable changes to AgentMesh will be documented here. The project follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-07
+
+### Added
+
+- MCP Authoring workspace in the interactive CLI for explaining, creating, running, exporting, and
+  configuring model-authored composite tools.
+- Startup update prompts in interactive mode, with checksum-verified install through the existing
+  self-updater.
+- Generated MCP lifecycle guidance and automatic catalog reload for composites created from the
+  CLI; confirmation can be configured per MCP client server.
+
 ### Changed
 
 - Generated and runtime data now defaults to native per-user data directories on macOS, Windows,
@@ -84,4 +95,5 @@ All notable changes to AgentMesh will be documented here. The project follows
 - Graceful shutdown and human-readable or JSON telemetry.
 - Container, CI, security, contribution, and repository governance foundations.
 
-[Unreleased]: https://github.com/devdanielvaldez/agentmesh/commits/main
+[Unreleased]: https://github.com/devdanielvaldez/agentmesh/compare/v0.3.2...main
+[0.3.2]: https://github.com/devdanielvaldez/agentmesh/compare/v0.3.0...v0.3.2

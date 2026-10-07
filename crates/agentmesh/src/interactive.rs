@@ -23,6 +23,7 @@ enum Page {
     WorkflowDetail,
     Composites,
     CompositeDetail,
+    McpAuthoring,
     Integrations,
     Sessions,
     Diagnostics,
@@ -59,7 +60,7 @@ impl App {
 
     fn move_selection(&mut self, delta: isize) {
         let length = match self.page {
-            Page::Home => 7,
+            Page::Home => 9,
             Page::Capabilities => visible_capabilities(self).len(),
             Page::Workflows => workflow_summaries().map_or(0, |items| items.len()),
             Page::Composites => {
@@ -79,6 +80,7 @@ impl App {
             Page::CapabilityDetail => Page::Capabilities,
             Page::WorkflowDetail => Page::Workflows,
             Page::CompositeDetail => Page::Composites,
+            Page::McpAuthoring => Page::Home,
             _ => Page::Home,
         };
         self.notice = "Ready".into();
@@ -177,9 +179,9 @@ fn handle_key(app: &mut App, key: Key) -> Result<bool> {
     }
     match app.page {
         Page::Home => match key {
-            Key::Up => app.home_selection = (app.home_selection + 7) % 8,
-            Key::Down => app.home_selection = (app.home_selection + 1) % 8,
-            Key::Character('1'..='8') => {
+            Key::Up => app.home_selection = (app.home_selection + 8) % 9,
+            Key::Down => app.home_selection = (app.home_selection + 1) % 9,
+            Key::Character('1'..='9') => {
                 app.home_selection = key_digit(key) - 1;
                 open_home_page(app);
             }
@@ -275,6 +277,18 @@ fn handle_key(app: &mut App, key: Key) -> Result<bool> {
             Key::Character('q' | 'Q') => app.back(),
             _ => {}
         },
+        Page::McpAuthoring => match key {
+            Key::Character('e' | 'E') => show_mcp_authoring_guide(),
+            Key::Character('c' | 'C') => create_composite_from_console()?,
+            Key::Character('r' | 'R') => {
+                app.selected = 0;
+                app.page = Page::Composites;
+            }
+            Key::Character('a' | 'A') => configure_autonomous_composite_creation()?,
+            Key::Character('m' | 'M') => publish_all_from_console()?,
+            Key::Character('q' | 'Q') => app.back(),
+            _ => {}
+        },
         Page::Integrations => match key {
             Key::Character('r' | 'R') => {
                 app.notice = "Configuration reloaded on the next view.".into()
@@ -318,19 +332,31 @@ fn open_home_page(app: &mut App) {
         1 => Page::Capabilities,
         2 => Page::Workflows,
         3 => Page::Composites,
-        4 => Page::Integrations,
-        5 => Page::Sessions,
-        6 => Page::Diagnostics,
+        4 => Page::McpAuthoring,
+        5 => Page::Integrations,
+        6 => Page::Sessions,
+        7 => Page::Diagnostics,
         _ => Page::Help,
     };
 }
 
 fn draw(app: &App) {
-    let mut output = String::from("\x1b[2J\x1b[H\x1b[1;36m");
-    output.push_str("  ▄▀█ █▀▀ █▀▀ █▄ █ ▀█▀ █▀▄ █▀▀ █▀ █  ██\n");
-    output.push_str("  █▀█ █▄▄ ██▄ █ ▀█  █  █▄▀ ██▄ ▄█ █▄▄ ▄▄\x1b[0m\n");
+    let mut output = String::from("\x1b[2J\x1b[H\x1b[1;96m");
+    const WORDMARK: [&str; 5] = [
+        " ███   ████  █████ █   █ █████ █   █ █████  ████  █   █",
+        "█   █  █     █     ██  █   █    ██ ██ █     █     █   █",
+        "█████  █ ███ ████  █ █ █   █    █ █ █ ████   ███  █████",
+        "█   █  █   █ █     █  ██   █    █   █ █         █ █   █",
+        "█   █  ████  █████ █   █ █████  █   █ █████ ████  █   █",
+    ];
+    for line in WORDMARK {
+        output.push_str("  ");
+        output.push_str(line);
+        output.push('\n');
+    }
+    output.push_str("\x1b[0m");
     output.push_str(&format!(
-        "  CAPABILITY WORKSPACE  ·  v{}\n",
+        "  MCP AUTOMATION WORKSPACE  ·  v{}\n",
         env!("CARGO_PKG_VERSION")
     ));
     output.push_str(&format!("{}\n", "─".repeat(WIDTH)));
@@ -347,6 +373,7 @@ fn draw(app: &App) {
             Page::WorkflowDetail => draw_workflow_detail(app, &mut output),
             Page::Composites => draw_composites(app, &mut output),
             Page::CompositeDetail => draw_composite_detail(app, &mut output),
+            Page::McpAuthoring => draw_mcp_authoring(&mut output),
             Page::Integrations => draw_integrations(&mut output),
             Page::Sessions => draw_sessions(&mut output),
             Page::Diagnostics => draw_diagnostics(&mut output),
@@ -376,6 +403,10 @@ fn draw_home(app: &App, output: &mut String) {
         (
             "Composite MCP tools",
             "Build and run multi-step agent tools",
+        ),
+        (
+            "MCP Authoring",
+            "Explain, publish, and configure model-created tools",
         ),
         (
             "MCP Integrations",
@@ -427,6 +458,7 @@ fn draw_sidebar(app: &App, output: &mut String) {
         "Capabilities",
         "Workflows",
         "Composites",
+        "MCP Authoring",
         "Integrations",
         "Sessions",
         "Diagnostics",
@@ -437,10 +469,11 @@ fn draw_sidebar(app: &App, output: &mut String) {
         Page::Capabilities | Page::CapabilityDetail => 1,
         Page::Workflows | Page::WorkflowDetail => 2,
         Page::Composites | Page::CompositeDetail => 3,
-        Page::Integrations => 4,
-        Page::Sessions => 5,
-        Page::Diagnostics => 6,
-        Page::Help => 7,
+        Page::McpAuthoring => 4,
+        Page::Integrations => 5,
+        Page::Sessions => 6,
+        Page::Diagnostics => 7,
+        Page::Help => 8,
     };
     output.push_str("  ");
     for (index, page) in pages.iter().enumerate() {
@@ -675,6 +708,176 @@ fn draw_composite_detail(app: &App, output: &mut String) {
         }
         Err(error) => output.push_str(&format!("  Could not inspect composite: {error}\n")),
     }
+}
+
+fn draw_mcp_authoring(output: &mut String) {
+    output.push_str("  MCP TOOL AUTHORING\n\n");
+    output
+        .push_str("  AgentMesh Teach exports demonstrated workflows as MCP tools. The model can\n");
+    output.push_str(
+        "  compose installed workflows into persistent tools; it cannot write arbitrary code.\n\n",
+    );
+    output.push_str("  e  Show the authoring and safety guide\n");
+    output.push_str("  c  Create a composite tool from a JSON/YAML recipe\n");
+    output.push_str("  r  Browse and run saved composite tools\n");
+    output.push_str("  a  Configure autonomous composite creation in an MCP client\n");
+    output.push_str("  m  Export/refresh all workflows and connect an MCP client\n\n");
+    if let Some(home) = agentmesh_teach::home_dir() {
+        output.push_str(&format!("  MCP exports: {}\n", home.join("mcp").display()));
+    }
+    output.push_str(
+        "  Autonomous creation is off by default. Existing workflow policies and approvals\n",
+    );
+    output.push_str("  continue to apply when a composite is created or executed.\n");
+}
+
+fn show_mcp_authoring_guide() {
+    println!("\nAgentMesh Teach authoring guide\n");
+    println!("1. Search and inspect installed capabilities before using them.");
+    println!("2. A composite is an ordered recipe that combines existing workflows.");
+    println!(
+        "3. Map caller inputs with {{$input: name}} and earlier outputs with {{$step: step_id, path: outputs.name}}."
+    );
+    println!(
+        "4. The server validates the recipe and inherits effects and permissions from its workflows."
+    );
+    println!("5. Exported MCP servers persist composites and can expose them as new tools.");
+    println!("6. Composite creation never grants permissions or loads arbitrary code.");
+    println!("7. Every workflow keeps its own policy and approval checks when it runs.");
+    pause_for_action();
+}
+
+fn configure_autonomous_composite_creation() -> Result<()> {
+    println!("\nChoose the MCP client configuration to update:");
+    println!("  1. Claude Desktop");
+    println!("  2. Project MCP config (.mcp.json)");
+    println!("  3. Custom config file");
+    let choice = prompt("Choose 1–3 [1]")?;
+    let path = match choice.trim() {
+        "" | "1" => claude_desktop_config_path()?,
+        "2" => PathBuf::from(".mcp.json"),
+        "3" => {
+            let path = prompt("MCP client configuration path")?;
+            if path.trim().is_empty() {
+                return Ok(());
+            }
+            PathBuf::from(path)
+        }
+        other => anyhow::bail!("unknown client choice {other:?}"),
+    };
+    let mut document = if path.is_file() {
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path)?)
+            .with_context(|| format!("{} is not valid JSON; left unchanged", path.display()))?
+    } else {
+        anyhow::bail!(
+            "{} does not exist; publish an MCP server first",
+            path.display()
+        );
+    };
+    let servers = document
+        .get_mut("mcpServers")
+        .and_then(serde_json::Value::as_object_mut)
+        .context("MCP config has no mcpServers object")?;
+    if servers.is_empty() {
+        anyhow::bail!("MCP config has no registered servers");
+    }
+    let names: Vec<_> = servers.keys().cloned().collect();
+    println!("\nConfigured MCP servers:");
+    for (index, name) in names.iter().enumerate() {
+        let enabled = servers
+            .get(name)
+            .and_then(|server| server.get("env"))
+            .and_then(|env| env.get("AGENTMESH_MCP_ALLOW_COMPOSITE_CREATION"))
+            .and_then(serde_json::Value::as_str)
+            == Some("1");
+        println!(
+            "  {}. {} [{}]",
+            index + 1,
+            name,
+            if enabled {
+                "autonomous creation on"
+            } else {
+                "confirmation required"
+            }
+        );
+    }
+    let selection = prompt("Server number or name")?;
+    let name = selection
+        .parse::<usize>()
+        .ok()
+        .and_then(|number| number.checked_sub(1))
+        .and_then(|index| names.get(index))
+        .cloned()
+        .or_else(|| names.iter().find(|name| **name == selection).cloned())
+        .context("MCP server was not found")?;
+    let currently_enabled = servers
+        .get(&name)
+        .and_then(|server| server.get("env"))
+        .and_then(|env| env.get("AGENTMESH_MCP_ALLOW_COMPOSITE_CREATION"))
+        .and_then(serde_json::Value::as_str)
+        == Some("1");
+    let enabled = matches!(
+        prompt(&format!(
+            "Allow model-created composites without a confirmation prompt? [y/N]{}",
+            if currently_enabled {
+                " (currently enabled)"
+            } else {
+                ""
+            }
+        ))?
+        .trim()
+        .to_lowercase()
+        .as_str(),
+        "y" | "yes"
+    );
+    let server = servers
+        .get_mut(&name)
+        .and_then(serde_json::Value::as_object_mut)
+        .with_context(|| format!("MCP server {name:?} must be an object"))?;
+    let env = server
+        .entry("env")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .context("MCP server env must be an object")?;
+    if enabled {
+        env.insert(
+            "AGENTMESH_MCP_ALLOW_COMPOSITE_CREATION".into(),
+            serde_json::Value::String("1".into()),
+        );
+    } else {
+        env.remove("AGENTMESH_MCP_ALLOW_COMPOSITE_CREATION");
+    }
+    run_action("Update MCP authoring setting", || {
+        write_client_config(&path, &document)
+    })
+}
+
+fn publish_all_from_console() -> Result<()> {
+    println!("\nWhere should AgentMesh connect the MCP server?");
+    println!("  1. Claude Code — this project");
+    println!("  2. Claude Code — all projects (requires claude CLI)");
+    println!("  3. Claude Desktop — merge its local MCP config");
+    println!("  4. Another MCP client — write a config file");
+    let choice = prompt("Choose 1–4 [1]")?;
+    let client = if choice.trim().is_empty() {
+        "1"
+    } else {
+        choice.trim()
+    };
+    if !matches!(client, "1" | "2" | "3" | "4") {
+        anyhow::bail!("unknown client choice {client:?}");
+    }
+    let profile = choose_login_profile()?;
+    let install_dependencies = !matches!(
+        prompt("Install MCP server dependencies now? [Y/n]")?
+            .trim()
+            .to_lowercase()
+            .as_str(),
+        "n" | "no"
+    );
+    run_action("Publish all workflows as an MCP server", || {
+        publish_workflow("", true, client, profile.as_deref(), install_dependencies)
+    })
 }
 
 fn create_composite_from_console() -> Result<()> {
@@ -1286,6 +1489,7 @@ fn draw_help(output: &mut String) {
     output.push_str("  i            Install a capability package\n");
     output.push_str("  t            Record a browser session into a workflow\n");
     output.push_str("  c            Create or run a composite MCP tool from its menu\n");
+    output.push_str("  e / a / m    Explain MCP authoring / configure / publish all workflows\n");
     output.push_str("  Login Sessions lets you save logins and choose one when recording\n");
     output.push_str("  r            Run the selected workflow\n");
     output.push_str("  m            Create MCP server and connect an AI client\n");

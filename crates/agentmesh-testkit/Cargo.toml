@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
-agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.3.1" }
-agentmesh-transport = { path = "../agentmesh-transport", version = "0.3.1" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.2" }
+agentmesh-protocol = { path = "../agentmesh-protocol", version = "0.3.2" }
+agentmesh-transport = { path = "../agentmesh-transport", version = "0.3.2" }
 serde_json.workspace = true
 
 [dev-dependencies]

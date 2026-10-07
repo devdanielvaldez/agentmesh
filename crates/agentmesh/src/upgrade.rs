@@ -87,7 +87,7 @@ pub fn pending_notice() -> Option<String> {
 ///
 /// Returns an error when the release cannot be resolved, the platform is
 /// unsupported, verification fails, or the install cannot complete.
-pub async fn run_upgrade(check: bool, yes: bool, to: Option<PathBuf>) -> Result<()> {
+pub async fn run_upgrade(check: bool, yes: bool, to: Option<PathBuf>) -> Result<bool> {
     let release = fetch_latest().await?;
     let latest = parse_version(&release.tag_name)
         .with_context(|| format!("release {} is not a version tag", release.tag_name))?;
@@ -98,7 +98,7 @@ pub async fn run_upgrade(check: bool, yes: bool, to: Option<PathBuf>) -> Result<
             "agentmesh {} is already the latest release.",
             env!("CARGO_PKG_VERSION")
         );
-        return Ok(());
+        return Ok(false);
     }
     let (target, extension) = platform_target().context(
         "no prebuilt binary for this platform; install with install.sh or cargo instead",
@@ -107,11 +107,11 @@ pub async fn run_upgrade(check: bool, yes: bool, to: Option<PathBuf>) -> Result<
     println!("Latest release: {}", release.tag_name);
     if check {
         println!("Run `agentmesh upgrade` to download and install {file_name}.");
-        return Ok(());
+        return Ok(false);
     }
     if !yes && !confirm(&release.tag_name)? {
         println!("Upgrade cancelled.");
-        return Ok(());
+        return Ok(false);
     }
     let asset = release
         .assets
@@ -129,7 +129,7 @@ pub async fn run_upgrade(check: bool, yes: bool, to: Option<PathBuf>) -> Result<
     install_binary(&binary, to.as_deref())?;
     let _ = std::fs::remove_dir_all(&workdir);
     println!("Upgraded to {}.", release.tag_name);
-    Ok(())
+    Ok(true)
 }
 
 /// Fetches the latest release for the configured repository.

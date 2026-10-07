@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-agentmesh-error = { path = "../agentmesh-error", version = "0.3.1" }
+agentmesh-error = { path = "../agentmesh-error", version = "0.3.2" }
 serde.workspace = true
 
 [lints]
